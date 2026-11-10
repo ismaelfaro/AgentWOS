@@ -1,0 +1,10 @@
+[package]
+name = "agentmodules-host"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wasmtime = { version = "27", features = ["component-model"] }
+wasmtime-wasi = "27"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }

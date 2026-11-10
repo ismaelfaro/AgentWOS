@@ -1,0 +1,36 @@
+package agentmodules:core@0.1.0;
+
+interface types {
+    record message {
+        role: string,
+        content: string,
+    }
+
+    record tool-descriptor {
+        name: string,
+        description: string,
+        json-schema: string,
+    }
+
+    record tool-call {
+        name: string,
+        args-json: string,
+    }
+
+    variant call-error {
+        invalid-input(string),
+        execution-failed(string),
+        not-found(string),
+    }
+}
+
+interface tool {
+    use types.{tool-call, call-error};
+
+    describe: func() -> string;
+    invoke: func(call: tool-call) -> result<string, call-error>;
+}
+
+world tool-module {
+    export tool;
+}

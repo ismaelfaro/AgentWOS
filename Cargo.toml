@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "host",
+]
+# Los modulos wasm (modules/*) son crates independientes compilados a
+# wasm32-wasip2; no entran en el workspace nativo para evitar que
+# `cargo build` del host intente compilarlos para el target host.
