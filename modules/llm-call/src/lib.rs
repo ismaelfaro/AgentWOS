@@ -1,6 +1,6 @@
 wit_bindgen::generate!({
     world: "llm-module",
-    path: "wit/world.wit",
+    path: "../../wit/world.wit",
 });
 
 use exports::agentmodules::core::llm::{CallError, Guest, Message};

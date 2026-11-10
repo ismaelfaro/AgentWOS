@@ -1,15 +1,12 @@
 package agentmodules:core@0.1.0;
 
+// Contrato unico del sistema. Host y todos los modulos generan bindings
+// desde este archivo; cada modulo elige su `world`.
+
 interface types {
     record message {
         role: string,
         content: string,
-    }
-
-    record tool-descriptor {
-        name: string,
-        description: string,
-        json-schema: string,
     }
 
     record tool-call {
@@ -27,6 +24,7 @@ interface types {
 interface tool {
     use types.{tool-call, call-error};
 
+    /// JSON con name, description y json_schema.
     describe: func() -> string;
     invoke: func(call: tool-call) -> result<string, call-error>;
 }
@@ -34,6 +32,7 @@ interface tool {
 interface llm {
     use types.{message, call-error};
 
+    /// model: "openrouter/<id>" o "local/<id>".
     complete: func(messages: list<message>, model: string) -> result<string, call-error>;
 }
 
@@ -43,8 +42,40 @@ interface agent {
     run: func(input: list<message>) -> result<string, call-error>;
 }
 
+/// Modulos de control del OS: inspeccionan cada mensaje antes de entregarlo.
+interface control {
+    /// Recursos en % del valor inicial.
+    record recursos {
+        agua: f64,
+        comida: f64,
+        energia: f64,
+        oxigeno: f64,
+    }
+
+    variant veredicto {
+        allow,
+        modify(string),
+        block(string),
+        flag(string),
+    }
+
+    inspect: func(autor: string, texto: string, recursos: recursos) -> veredicto;
+}
+
 world agent-module {
     import llm;
     import tool;
     export agent;
+}
+
+world tool-module {
+    export tool;
+}
+
+world llm-module {
+    export llm;
+}
+
+world control-module {
+    export control;
 }

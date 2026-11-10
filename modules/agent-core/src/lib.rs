@@ -1,6 +1,6 @@
 wit_bindgen::generate!({
     world: "agent-module",
-    path: "wit/world.wit",
+    path: "../../wit/world.wit",
 });
 
 use agentmodules::core::llm;
