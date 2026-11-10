@@ -10,7 +10,7 @@ use wstd::http::{Body, Client, Request};
 struct Component;
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
-const OLLAMA_URL: &str = "http://localhost:11434/v1/chat/completions";
+const LM_STUDIO_URL: &str = "http://localhost:1234/v1/chat/completions";
 
 enum Backend {
     OpenRouter,
@@ -76,7 +76,7 @@ async fn complete_async(messages: Vec<Message>, model: String) -> Result<String,
             })?;
             post_chat(OPENROUTER_URL, Some(key), body).await
         }
-        Backend::Local => post_chat(OLLAMA_URL, None, body).await,
+        Backend::Local => post_chat(LM_STUDIO_URL, None, body).await,
     };
 
     result.map_err(CallError::ExecutionFailed)
