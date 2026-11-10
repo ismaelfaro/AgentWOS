@@ -28,7 +28,16 @@ impl Guest for Component {
             return tool::invoke(&call);
         }
 
-        llm::complete(&input, "openrouter/anthropic/claude-sonnet-4.5")
+        let (model, msgs) = match last.content.strip_prefix("model:") {
+            Some(rest) => {
+                let (m, text) = rest.split_once(' ').unwrap_or((rest, ""));
+                let mut msgs = input.clone();
+                msgs.last_mut().unwrap().content = text.to_string();
+                (m.to_string(), msgs)
+            }
+            None => ("openrouter/anthropic/claude-sonnet-4.5".to_string(), input.clone()),
+        };
+        llm::complete(&msgs, &model)
     }
 }
 

@@ -8,3 +8,4 @@ wasmtime = { version = "27", features = ["component-model"] }
 wasmtime-wasi = "27"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+wasmtime-wasi-http = "27"

@@ -5,6 +5,7 @@ use clap::Parser;
 use wasmtime::component::{Component, Linker, ResourceTable};
 use wasmtime::{Config, Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 /// Estado WASI minimo: todos los modulos (agent-core, tool-echo, llm-call)
 /// arrastran import de wasi:cli/* porque son binarios std de Rust, aunque
@@ -14,13 +15,20 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 struct WasiState {
     ctx: WasiCtx,
     table: ResourceTable,
+    http: WasiHttpCtx,
 }
 
 impl WasiState {
-    fn new() -> Self {
+    fn new(env: &[(&str, String)]) -> Self {
+        let mut builder = WasiCtxBuilder::new();
+        builder.inherit_stdio();
+        for (k, v) in env {
+            builder.env(k, v);
+        }
         Self {
-            ctx: WasiCtxBuilder::new().inherit_stdio().build(),
+            ctx: builder.build(),
             table: ResourceTable::new(),
+            http: WasiHttpCtx::new(),
         }
     }
 }
@@ -32,6 +40,16 @@ impl WasiView for WasiState {
 
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.ctx
+    }
+}
+
+impl WasiHttpView for WasiState {
+    fn ctx(&mut self) -> &mut WasiHttpCtx {
+        &mut self.http
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
     }
 }
 
@@ -204,7 +222,7 @@ fn main() -> Result<()> {
     // --- instancia tool-echo en su propio Store ---
     let tool_component = Component::from_file(&engine, &args.tool)
         .map_err(|e| anyhow!("cargando tool '{}': {e}", args.tool))?;
-    let mut tool_store = Store::new(&engine, WasiState::new());
+    let mut tool_store = Store::new(&engine, WasiState::new(&[]));
     let mut tool_linker = Linker::<WasiState>::new(&engine);
     wasmtime_wasi::add_to_linker_sync(&mut tool_linker)?;
     let tool_bindings =
@@ -213,9 +231,15 @@ fn main() -> Result<()> {
     // --- instancia llm-call en su propio Store ---
     let llm_component = Component::from_file(&engine, &args.llm)
         .map_err(|e| anyhow!("cargando llm '{}': {e}", args.llm))?;
-    let mut llm_store = Store::new(&engine, WasiState::new());
+    let llm_env: Vec<(&str, String)> = std::env::var("OPENROUTER_API_KEY")
+        .ok()
+        .map(|k| ("OPENROUTER_API_KEY", k))
+        .into_iter()
+        .collect();
+    let mut llm_store = Store::new(&engine, WasiState::new(&llm_env));
     let mut llm_linker = Linker::<WasiState>::new(&engine);
     wasmtime_wasi::add_to_linker_sync(&mut llm_linker)?;
+    wasmtime_wasi_http::add_only_http_to_linker_sync(&mut llm_linker)?;
     let llm_bindings =
         llm_world::LlmModule::instantiate(&mut llm_store, &llm_component, &llm_linker)?;
 
@@ -225,7 +249,7 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow!("cargando agent '{}': {e}", args.agent))?;
 
     let state = HostState {
-        wasi: WasiState::new(),
+        wasi: WasiState::new(&[]),
         tool: RefCell::new(ToolInstance {
             store: tool_store,
             bindings: tool_bindings,
