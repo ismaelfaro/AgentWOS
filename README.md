@@ -51,6 +51,35 @@ Principios:
   mensajes largos y marca afirmaciones de abundancia con recursos críticos.
 - `dashboard/index.html`: consola de observación.
 
+## Requisitos
+
+- Rust (rustup) con el target `wasm32-wasip2`: `rustup target add wasm32-wasip2`.
+- Un backend LLM compatible con la API de OpenAI:
+  - **Local**: LM Studio con el servidor activo en `localhost:1234` y un modelo
+    cargado (probado con `google/gemma-4-e4b` y `bonsai-1.7b`).
+  - **Remoto**: OpenRouter, exportando `OPENROUTER_API_KEY`.
+- Python 3, solo para servir el dashboard.
+
+## Inicio rápido
+
+```bash
+source "$HOME/.cargo/env"
+for m in tool-echo llm-call agent-core control-guardia; do
+  (cd modules/$m && cargo build --release --target wasm32-wasip2)
+done
+cargo build --release
+
+./target/release/agentmodules-host \
+  --control modules/control-guardia/target/wasm32-wasip2/release/control_guardia.wasm \
+  --colony 3 --log sim/runs/latest.js
+
+python3 -m http.server 8765 --bind 127.0.0.1
+# abrir http://localhost:8765/dashboard/index.html
+```
+
+Cada turno tarda entre 20 y 40 s con gemma-4-e4b en local: un día con 5 colonos
+son unos 2-3 minutos.
+
 ## Build
 
 ```bash
@@ -60,6 +89,17 @@ for m in tool-echo llm-call agent-core control-guardia; do
 done
 cargo build --release
 ```
+
+## Un solo agente
+
+```bash
+./target/release/agentmodules-host --message "model:local/google/gemma-4-e4b hola"
+./target/release/agentmodules-host --message "model:openrouter/anthropic/claude-haiku-4.5 hola"
+./target/release/agentmodules-host --message "tool:echo hola"
+```
+
+Las rutas de los `.wasm` tienen valores por defecto; se pueden cambiar con
+`--agent`, `--tool`, `--llm` y `--control` (repetible).
 
 ## Simulación de la colonia
 
@@ -72,6 +112,22 @@ oxígeno, planta de agua recupera agua), además del consumo diario y los evento
   --control modules/control-guardia/target/wasm32-wasip2/release/control_guardia.wasm \
   --colony 10 --log sim/runs/latest.js
 ```
+
+Opciones: `--colony N` (días), `--model` (por defecto `local/google/gemma-4-e4b`),
+`--log` (ruta del log para el dashboard).
+
+### Formato del log
+
+`sim/runs/latest.js` define `window.SIM_DATA` (se carga como script, así el
+dashboard funciona sin backend). Campos principales:
+
+- `modelo`, `dias_total`, `terminado`, `controles`, `colonos`, `zonas`, `inicial`.
+- `dias[]`: `dia`, `evento`, `en_curso`, `colapso`, `estado_inicio`, `estado_fin`, `turnos[]`.
+- `turnos[]`: `agente`, `accion`, `entregado` (texto tras los controles, `null` si
+  se bloqueó), `zona`, `estado`, `efecto`, `controles[]` (`modulo`, `veredicto`,
+  `detalle`), `latencia_ms`, `formato_ok`, `error`, `recursos_tras_turno`.
+
+`sim/runs/` está en `.gitignore`.
 
 ## Dashboard
 
@@ -90,6 +146,20 @@ corre la simulación. Muestra:
 
 El cursor (scrubber, `<` `>`, flechas del teclado, espacio para reproducir)
 mueve todos los paneles a la vez. "En vivo" sigue el último turno.
+
+## Problemas comunes
+
+- **`OSError: [Errno 48] Address already in use` al servir el dashboard**: ya hay
+  un servidor en 8765 (por ejemplo, el que arranca Claude Code desde
+  `.claude/launch.json`). Abre la URL directamente o usa otro puerto
+  (`python3 -m http.server 8766 --bind 127.0.0.1`).
+- **`ErrorCode::ConnectionRefused`**: LM Studio no tiene el servidor activo en
+  `localhost:1234`.
+- **`falta OPENROUTER_API_KEY en el env del host`**: exporta la key antes de usar
+  un modelo `openrouter/...`.
+- **Dashboard vacío**: el host no se lanzó con `--log sim/runs/latest.js`, o el
+  primer día aún no ha cerrado ningún turno. El dashboard también funciona
+  abierto como `file://`, pero servido por HTTP es más fiable.
 
 ## Próximas fases
 
