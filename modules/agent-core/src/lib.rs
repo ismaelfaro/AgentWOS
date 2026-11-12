@@ -11,14 +11,14 @@ use serde_json::json;
 
 struct Component;
 
-/// Orquestacion minima: si el ultimo mensaje user empieza con "tool:<nombre> ",
-/// invoca esa tool; si no, delega al llm. Esto es el loop base; en fases
-/// posteriores un modelo real decide que tool llamar (tool-calling del LLM).
+/// Minimal orchestration: if the last user message starts with "tool:echo ",
+/// call that tool; otherwise delegate to the LLM. A "model:<id> " prefix picks
+/// the model for that message.
 impl Guest for Component {
     fn run(input: Vec<Message>) -> Result<String, CallError> {
         let last = input
             .last()
-            .ok_or_else(|| CallError::InvalidInput("input vacio".into()))?;
+            .ok_or_else(|| CallError::InvalidInput("empty input".into()))?;
 
         if let Some(rest) = last.content.strip_prefix("tool:echo ") {
             let call = ToolCall {

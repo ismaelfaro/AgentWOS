@@ -1,7 +1,7 @@
 package agentmodules:core@0.1.0;
 
-// Contrato unico del sistema. Host y todos los modulos generan bindings
-// desde este archivo; cada modulo elige su `world`.
+// Single contract for the whole system. The host and every module generate
+// their bindings from this file; each module picks one `world`.
 
 interface types {
     record message {
@@ -24,7 +24,7 @@ interface types {
 interface tool {
     use types.{tool-call, call-error};
 
-    /// JSON con name, description y json_schema.
+    /// JSON with name, description and json_schema.
     describe: func() -> string;
     invoke: func(call: tool-call) -> result<string, call-error>;
 }
@@ -32,7 +32,7 @@ interface tool {
 interface llm {
     use types.{message, call-error};
 
-    /// model: "openrouter/<id>" o "local/<id>".
+    /// model: "openrouter/<id>" or "local/<id>".
     complete: func(messages: list<message>, model: string) -> result<string, call-error>;
 }
 
@@ -42,24 +42,42 @@ interface agent {
     run: func(input: list<message>) -> result<string, call-error>;
 }
 
-/// Modulos de control del OS: inspeccionan cada mensaje antes de entregarlo.
+/// OS control modules: inspect every action before it is delivered.
+/// `context` is scenario-defined JSON (for example, resource levels).
 interface control {
-    /// Recursos en % del valor inicial.
-    record recursos {
-        agua: f64,
-        comida: f64,
-        energia: f64,
-        oxigeno: f64,
-    }
-
-    variant veredicto {
+    variant verdict {
         allow,
         modify(string),
         block(string),
         flag(string),
     }
 
-    inspect: func(autor: string, texto: string, recursos: recursos) -> veredicto;
+    inspect: func(author: string, text: string, context: string) -> verdict;
+}
+
+/// A scenario owns the world: agents, rules, state and the record of what
+/// happened. The kernel only drives turns and calls controls in between.
+interface scenario {
+    use types.{message};
+
+    /// config: JSON with at least `model` and `days`. Returns JSON with
+    /// `colonists` (agent names and roles) and any extra fields the dashboard reads.
+    setup: func(config: string) -> string;
+    /// Starts a day. Returns a short description of the day.
+    begin-day: func(day: u32, total: u32) -> string;
+    /// Messages the agent at index `agent` receives for its turn.
+    turn-messages: func(agent: u32) -> list<message>;
+    /// Extracts the action text from the raw model reply.
+    action-of: func(agent: u32, reply: string) -> string;
+    /// JSON context passed to every control for this turn.
+    context: func() -> string;
+    /// Records the outcome of a turn. `delivered` is none when a control blocked it.
+    /// `controls` is a JSON array of control verdicts.
+    record-turn: func(agent: u32, delivered: option<string>, controls: string, latency-ms: u64, error: option<string>);
+    /// Closes the day. Returns true when the simulation has collapsed.
+    end-day: func() -> bool;
+    /// JSON array with every day recorded so far.
+    snapshot: func() -> string;
 }
 
 world agent-module {
@@ -78,4 +96,8 @@ world llm-module {
 
 world control-module {
     export control;
+}
+
+world scenario-module {
+    export scenario;
 }

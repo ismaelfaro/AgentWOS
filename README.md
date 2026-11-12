@@ -1,66 +1,67 @@
 # AgentModules
 
-Réplica experimental de DeepAgents (LangChain) sobre WASM/WASI. Agentes, tools,
-el cliente LLM y los controles del OS son componentes WASM independientes,
-orquestados por un host Rust/Wasmtime (Component Model).
+Experimental replica of DeepAgents (LangChain) on WASM/WASI. Agents, tools, the
+LLM client and OS control modules are independent WASM components, orchestrated
+by a Rust/Wasmtime host (Component Model).
 
-## Arquitectura
+## Architecture
 
 ```
                       host (Rust, Wasmtime)  =  "Agentic WASM OS"
   ┌───────────────────────────────────────────────────────────────────┐
-  │ colony: mundo, eventos, turnos, efectos por zona, log            │
+  │ colony: world state, events, turns, zone effects, log             │
   │                                                                   │
-  │  colono 1..N (AgentInstance, Store propio)                        │
-  │    agent-core.wasm ──import tool──▶ host ──▶ tool-echo.wasm      │
+  │  colonist 1..N (AgentInstance, own Store)                         │
+  │    agent-core.wasm ──import tool──▶ host ──▶ tool-echo.wasm       │
   │                    ──import llm───▶ host ──▶ llm-call.wasm ──HTTP─┼─▶ LM Studio / OpenRouter
   │                                                                   │
-  │  ControlChain: control-*.wasm (Store propio cada uno)             │
-  │    inspect(autor, texto, recursos) -> allow|modify|block|flag     │
+  │  ControlChain: control-*.wasm (own Store each)                    │
+  │    inspect(author, text, resources) -> allow|modify|block|flag    │
   └───────────────────────────────────────────────────────────────────┘
-          │ sim/runs/latest.js (reescrito tras cada turno)
+          │ sim/runs/latest.js (rewritten after every turn)
           ▼
      dashboard/index.html
 ```
 
-Principios:
+Principles:
 
-- **Un Store por instancia.** Cada componente tiene su propio contexto WASI;
-  nada se comparte salvo lo que el host media.
-- **Capacidades mínimas.** Solo `llm-call` recibe `wasi:http` y la API key;
-  tools, agentes y controles no tienen red.
-- **El host media todo mensaje.** Los imports del agente se resuelven contra
-  otras instancias a través del host, y cada acción de un colono pasa por la
-  cadena de controles antes de entregarse. Una acción bloqueada no se ejecuta
-  y no aplica su efecto en los recursos.
-- **Un único contrato.** `wit/world.wit` define todas las interfaces y worlds;
-  host y módulos generan bindings desde ese archivo.
+- **One Store per instance.** Each component has its own WASI context; nothing
+  is shared except what the host mediates.
+- **Minimal capabilities.** Only `llm-call` gets `wasi:http` and the API key.
+  Tools, agents and controls have no network access.
+- **The host mediates every message.** Agent imports resolve against other
+  instances through the host, and every colonist action goes through the control
+  chain before it is delivered. A blocked action is not executed and has no
+  effect on resources.
+- **One contract.** `wit/world.wit` defines every interface and world; the host
+  and modules generate their bindings from that file.
 
-## Estructura
+## Layout
 
-- `wit/world.wit`: interfaces `types`, `tool`, `llm`, `agent`, `control` y sus worlds.
-- `host/src/runtime.rs`: WASI, bindings, carga e instanciación de componentes.
-- `host/src/control.rs`: cadena de módulos de control.
-- `host/src/colony.rs`: simulación de la colonia y log para el dashboard.
-- `host/src/main.rs`: CLI.
-- `modules/agent-core`: agente. `model:<id> <texto>` elige modelo; `tool:echo <texto>` usa la tool.
-- `modules/llm-call`: cliente OpenAI-compatible. `local/<id>` va a LM Studio
-  (`localhost:1234`), `openrouter/<id>` a OpenRouter (`OPENROUTER_API_KEY`).
-- `modules/tool-echo`: tool de ejemplo.
-- `modules/control-guardia`: control determinista. Bloquea sabotaje, recorta
-  mensajes largos y marca afirmaciones de abundancia con recursos críticos.
-- `dashboard/index.html`: consola de observación.
+- `wit/world.wit`: interfaces `types`, `tool`, `llm`, `agent`, `control`, `scenario` and their worlds.
+- `host/src/runtime.rs`: WASI, bindings, component loading and instantiation.
+- `host/src/control.rs`: control module chain.
+- `host/src/runner.rs`: generic scenario runner and dashboard log.
+- `host/src/main.rs`: CLI and manifest loading.
+- `examples/mars-colony/`: the Mars colony as a scenario module plus its `manifest.json`.
+- `modules/agent-core`: agent. `model:<id> <text>` picks the model; `tool:echo <text>` calls the tool.
+- `modules/llm-call`: OpenAI-compatible client. `local/<id>` goes to LM Studio
+  (`localhost:1234`), `openrouter/<id>` to OpenRouter (`OPENROUTER_API_KEY`).
+- `modules/tool-echo`: example tool.
+- `modules/control-guardia`: deterministic control. Blocks sabotage, truncates
+  long messages and flags abundance claims while a context value is critical.
+- `dashboard/index.html`: observation console.
 
-## Requisitos
+## Requirements
 
-- Rust (rustup) con el target `wasm32-wasip2`: `rustup target add wasm32-wasip2`.
-- Un backend LLM compatible con la API de OpenAI:
-  - **Local**: LM Studio con el servidor activo en `localhost:1234` y un modelo
-    cargado (probado con `google/gemma-4-e4b` y `bonsai-1.7b`).
-  - **Remoto**: OpenRouter, exportando `OPENROUTER_API_KEY`.
-- Python 3, solo para servir el dashboard.
+- Rust (rustup) with the `wasm32-wasip2` target: `rustup target add wasm32-wasip2`.
+- An OpenAI-compatible LLM backend:
+  - **Local**: LM Studio with its server running on `localhost:1234` and a model
+    loaded (tested with `google/gemma-4-e4b` and `bonsai-1.7b`).
+  - **Remote**: OpenRouter, with `OPENROUTER_API_KEY` exported.
+- Python 3, only to serve the dashboard.
 
-## Inicio rápido
+## Quick start
 
 ```bash
 source "$HOME/.cargo/env"
@@ -69,103 +70,104 @@ for m in tool-echo llm-call agent-core control-guardia; do
 done
 cargo build --release
 
-./target/release/agentmodules-host \
-  --control modules/control-guardia/target/wasm32-wasip2/release/control_guardia.wasm \
-  --colony 3 --log sim/runs/latest.js
+(cd examples/mars-colony/scenario && cargo build --release --target wasm32-wasip2)
+
+./target/release/agentmodules-host --manifest examples/mars-colony/manifest.json --colony 3
 
 python3 -m http.server 8765 --bind 127.0.0.1
-# abrir http://localhost:8765/dashboard/index.html
+# open http://localhost:8765/dashboard/index.html
 ```
 
-Cada turno tarda entre 20 y 40 s con gemma-4-e4b en local: un día con 5 colonos
-son unos 2-3 minutos.
+With gemma-4-e4b locally each turn takes 20-40 s: one day with 5 colonists is
+roughly 2-3 minutes.
 
-## Build
+## Single agent
 
 ```bash
-source "$HOME/.cargo/env"
-for m in tool-echo llm-call agent-core control-guardia; do
-  (cd modules/$m && cargo build --release --target wasm32-wasip2)
-done
-cargo build --release
+./target/release/agentmodules-host --message "model:local/google/gemma-4-e4b hello"
+./target/release/agentmodules-host --message "model:openrouter/anthropic/claude-haiku-4.5 hello"
+./target/release/agentmodules-host --message "tool:echo hello"
 ```
 
-## Un solo agente
+The `.wasm` paths have defaults; override them with `--agent`, `--tool`, `--llm`
+and `--control` (repeatable).
 
-```bash
-./target/release/agentmodules-host --message "model:local/google/gemma-4-e4b hola"
-./target/release/agentmodules-host --message "model:openrouter/anthropic/claude-haiku-4.5 hola"
-./target/release/agentmodules-host --message "tool:echo hola"
+## Scenarios and manifests
+
+A scenario is a WASM component that owns the world: which agents exist, what
+they are told each turn, what their actions do, and the record of what happened.
+The kernel only runs the turns, sends each action through the control chain and
+writes the log. Mars is one scenario; the kernel knows nothing about it.
+
+`examples/mars-colony/manifest.json`:
+
+```json
+{
+  "scenario": "scenario/target/wasm32-wasip2/release/mars_colony.wasm",
+  "controls": ["../../modules/control-guardia/target/wasm32-wasip2/release/control_guardia.wasm"],
+  "model": "local/google/gemma-4-e4b",
+  "days": 10,
+  "log": "../../sim/runs/latest.js"
+}
 ```
 
-Las rutas de los `.wasm` tienen valores por defecto; se pueden cambiar con
-`--agent`, `--tool`, `--llm` y `--control` (repetible).
+Paths resolve from the manifest's folder. CLI flags override manifest values:
+`--scenario`, `--control` (repeatable), `--model`, `--colony N` (days), `--log`.
 
-## Simulación de la colonia
+Run a different scenario by writing a new `scenario` crate that exports the
+`scenario` interface, and a manifest that points to it.
 
-Cada colono responde en JSON (`accion`, `zona`, `estado`). Trabajar en una zona
-tiene efecto en los recursos (reactor genera energía, invernadero comida y
-oxígeno, planta de agua recupera agua), además del consumo diario y los eventos.
+The Mars scenario replies in JSON (`action`, `zone`, `status`). Working in a zone
+has an effect on resources, on top of daily consumption and events.
 
-```bash
-./target/release/agentmodules-host \
-  --control modules/control-guardia/target/wasm32-wasip2/release/control_guardia.wasm \
-  --colony 10 --log sim/runs/latest.js
-```
+### Log format
 
-Opciones: `--colony N` (días), `--model` (por defecto `local/google/gemma-4-e4b`),
-`--log` (ruta del log para el dashboard).
+`sim/runs/latest.js` defines `window.SIM_DATA`. It loads as a script, so the
+dashboard works without a backend. Main fields:
 
-### Formato del log
+- `model`, `days_total`, `finished`, `controls`, `colonists`, `zones`, `initial`.
+- `days[]`: `day`, `event`, `in_progress`, `collapse`, `start_state`, `end_state`, `turns[]`.
+- `turns[]`: `agent`, `action`, `delivered` (text after controls, `null` if
+  blocked), `zone`, `status`, `effect`, `controls[]` (`module`, `verdict`,
+  `detail`), `latency_ms`, `format_ok`, `error`, `resources_after_turn`.
 
-`sim/runs/latest.js` define `window.SIM_DATA` (se carga como script, así el
-dashboard funciona sin backend). Campos principales:
-
-- `modelo`, `dias_total`, `terminado`, `controles`, `colonos`, `zonas`, `inicial`.
-- `dias[]`: `dia`, `evento`, `en_curso`, `colapso`, `estado_inicio`, `estado_fin`, `turnos[]`.
-- `turnos[]`: `agente`, `accion`, `entregado` (texto tras los controles, `null` si
-  se bloqueó), `zona`, `estado`, `efecto`, `controles[]` (`modulo`, `veredicto`,
-  `detalle`), `latencia_ms`, `formato_ok`, `error`, `recursos_tras_turno`.
-
-`sim/runs/` está en `.gitignore`.
+`sim/runs/` is in `.gitignore`.
 
 ## Dashboard
 
-```bash
-python3 -m http.server 8765 --bind 127.0.0.1
-```
+Serve the repo with `python3 -m http.server 8765 --bind 127.0.0.1`, then open
+`http://localhost:8765/dashboard/index.html`. It refreshes every 3 s while the
+simulation runs. It shows:
 
-Abrir `http://localhost:8765/dashboard/index.html`. Se actualiza cada 3 s mientras
-corre la simulación. Muestra:
+- KPIs: day, turns, blocks, warnings, average latency, % of valid JSON replies.
+- Base map and colonist table at the cursor position.
+- Resources turn by turn.
+- OS audit: control verdicts, errors and replies outside the expected format.
+- Day turns with filters and search.
 
-- KPIs: día, turnos, bloqueos, avisos, latencia media, % de respuestas en JSON válido.
-- Mapa de la base y tabla de colonos en la posición del cursor.
-- Recursos turno a turno.
-- Auditoría del OS: veredictos de los controles, errores y respuestas fuera de formato.
-- Turnos del día con filtros y búsqueda.
+The cursor (scrubber, `<` `>`, arrow keys, space to play) moves every panel at
+once. "Live" follows the latest turn.
 
-El cursor (scrubber, `<` `>`, flechas del teclado, espacio para reproducir)
-mueve todos los paneles a la vez. "En vivo" sigue el último turno.
+## Troubleshooting
 
-## Problemas comunes
-
-- **`OSError: [Errno 48] Address already in use` al servir el dashboard**: ya hay
-  un servidor en 8765 (por ejemplo, el que arranca Claude Code desde
-  `.claude/launch.json`). Abre la URL directamente o usa otro puerto
+- **`OSError: [Errno 48] Address already in use` when serving the dashboard**:
+  something is already listening on 8765 (for example the server Claude Code
+  starts from `.claude/launch.json`). Open the URL directly or use another port
   (`python3 -m http.server 8766 --bind 127.0.0.1`).
-- **`ErrorCode::ConnectionRefused`**: LM Studio no tiene el servidor activo en
+- **`ErrorCode::ConnectionRefused`**: LM Studio's server is not running on
   `localhost:1234`.
-- **`falta OPENROUTER_API_KEY en el env del host`**: exporta la key antes de usar
-  un modelo `openrouter/...`.
-- **Dashboard vacío**: el host no se lanzó con `--log sim/runs/latest.js`, o el
-  primer día aún no ha cerrado ningún turno. El dashboard también funciona
-  abierto como `file://`, pero servido por HTTP es más fiable.
+- **`OPENROUTER_API_KEY missing from the host environment`**: export the key before
+  using an `openrouter/...` model.
+- **`no scenario loaded`**: pass `--manifest` or `--scenario` together with `--colony`.
+- **Empty dashboard**: the host was not started with `--log sim/runs/latest.js`,
+  or the first day has not finished any turn yet. The dashboard also works opened
+  as `file://`, but serving it over HTTP is more reliable.
 
-## Próximas fases
+## Next phases
 
-1. **Registry dinámico**: `attach(uri, interfaz)` para que un agente cargue
-   una tool nueva en runtime; el host valida la interfaz, instancia y cachea.
-2. **Controles con LLM**: un control que use su propio `llm-call` para juzgar
-   coherencia entre colonos.
-3. **Evolver**: generar código, compilar a wasm, evaluar en sandbox y promover
-   versiones en el registry, con rollback.
+1. **Dynamic registry**: `attach(uri, interface)` so an agent can load a new tool
+   at runtime; the host validates the interface, instantiates and caches it.
+2. **LLM-backed controls**: a control that uses its own `llm-call` to judge
+   consistency between colonists.
+3. **Evolver**: generate code, compile to wasm, evaluate in a sandbox and promote
+   versions in the registry, with rollback.

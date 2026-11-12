@@ -2,3 +2,4 @@
 /modules/*/target
 /host/target
 /sim/runs
+**/target

@@ -6,8 +6,8 @@ use wasmtime::{Engine, Store};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
-// Un bindgen! por world, cada uno en su modulo para que los tipos generados
-// (Message, CallError...) no colisionen. Todos leen el mismo WIT canonico.
+// One bindgen! per world, each in its own module so the generated types
+// (Message, CallError...) do not collide. All read the same canonical WIT.
 pub mod agent_world {
     wasmtime::component::bindgen!({ world: "agent-module", path: "../wit/world.wit" });
 }
@@ -20,11 +20,14 @@ pub mod llm_world {
 pub mod control_world {
     wasmtime::component::bindgen!({ world: "control-module", path: "../wit/world.wit" });
 }
+pub mod scenario_world {
+    wasmtime::component::bindgen!({ world: "scenario-module", path: "../wit/world.wit" });
+}
 
 use agent_world::agentmodules::core::types as at;
 
-/// Contexto WASI de un Store. Cada componente tiene el suyo: el aislamiento
-/// es por instancia, y las capacidades (env, red) se conceden una a una.
+/// WASI context of one Store. Each component has its own: isolation is per
+/// instance, and capabilities (env, network) are granted one by one.
 pub struct WasiState {
     ctx: WasiCtx,
     table: ResourceTable,
@@ -64,32 +67,41 @@ impl WasiHttpView for WasiState {
     }
 }
 
-/// Componentes compilados una sola vez; se instancian tantas veces como haga falta.
+/// Components compiled once; instantiated as many times as needed.
 pub struct Components {
     pub engine: Engine,
     pub agent: Component,
     pub tool: Component,
     pub llm: Component,
+    pub scenario: Option<Component>,
     pub controls: Vec<(String, Component)>,
 }
 
 impl Components {
-    pub fn load(engine: Engine, agent: &str, tool: &str, llm: &str, controls: &[String]) -> Result<Self> {
-        let load = |p: &str| Component::from_file(&engine, p).map_err(|e| anyhow!("cargando '{p}': {e}"));
+    pub fn load(
+        engine: Engine,
+        agent: &str,
+        tool: &str,
+        llm: &str,
+        scenario: Option<&str>,
+        controls: &[String],
+    ) -> Result<Self> {
+        let load = |p: &str| Component::from_file(&engine, p).map_err(|e| anyhow!("loading '{p}': {e}"));
         Ok(Self {
             agent: load(agent)?,
             tool: load(tool)?,
             llm: load(llm)?,
+            scenario: scenario.map(load).transpose()?,
             controls: controls
                 .iter()
-                .map(|p| Ok((nombre_modulo(p), load(p)?)))
+                .map(|p| Ok((module_name(p), load(p)?)))
                 .collect::<Result<_>>()?,
             engine,
         })
     }
 }
 
-fn nombre_modulo(path: &str) -> String {
+fn module_name(path: &str) -> String {
     std::path::Path::new(path)
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
@@ -106,8 +118,8 @@ struct LlmInstance {
     bindings: llm_world::LlmModule,
 }
 
-/// Store del agente. Sus imports (tool, llm) se resuelven contra instancias
-/// que viven en Stores propios: el host media cada llamada entre modulos.
+/// Agent store. Its imports (tool, llm) resolve against instances that live in
+/// their own Stores: the host mediates every call between modules.
 pub struct HostState {
     wasi: WasiState,
     tool: RefCell<ToolInstance>,
@@ -177,7 +189,7 @@ impl agent_world::agentmodules::core::llm::Host for HostState {
     }
 }
 
-/// Instancia viva de un agente, con su tool y su llm privados.
+/// Live agent instance, with its private tool and llm.
 pub struct AgentInstance {
     store: Store<HostState>,
     bindings: agent_world::AgentModule,
@@ -190,7 +202,7 @@ impl AgentInstance {
         wasmtime_wasi::add_to_linker_sync(&mut tool_linker)?;
         let tool = tool_world::ToolModule::instantiate(&mut tool_store, &c.tool, &tool_linker)?;
 
-        // Solo el llm recibe red y la API key.
+        // Only the llm receives network access and the API key.
         let llm_env: Vec<(&str, String)> = std::env::var("OPENROUTER_API_KEY")
             .ok()
             .map(|k| ("OPENROUTER_API_KEY", k))
@@ -215,15 +227,82 @@ impl AgentInstance {
         Ok(Self { store, bindings })
     }
 
-    pub fn ask(&mut self, messages: &[(&str, String)]) -> Result<String, String> {
-        let input: Vec<at::Message> = messages
-            .iter()
-            .map(|(role, content)| at::Message { role: role.to_string(), content: content.clone() })
-            .collect();
+    pub fn ask(&mut self, messages: Vec<at::Message>) -> Result<String, String> {
+        let input = messages;
         match self.bindings.agentmodules_core_agent().call_run(&mut self.store, &input) {
             Ok(Ok(s)) => Ok(s),
             Ok(Err(e)) => Err(format!("error del agente: {e:?}")),
             Err(e) => Err(format!("trap del agente: {e}")),
         }
+    }
+}
+
+/// Live scenario instance: owns the world and the record of what happened.
+pub fn agent_message(role: String, content: String) -> at::Message {
+    at::Message { role, content }
+}
+
+pub struct ScenarioInstance {
+    store: Store<WasiState>,
+    bindings: scenario_world::ScenarioModule,
+}
+
+type Msg = scenario_world::agentmodules::core::types::Message;
+
+impl ScenarioInstance {
+    pub fn spawn(c: &Components, component: &Component) -> Result<Self> {
+        let mut store = Store::new(&c.engine, WasiState::new(&[]));
+        let mut linker = Linker::<WasiState>::new(&c.engine);
+        wasmtime_wasi::add_to_linker_sync(&mut linker)?;
+        let bindings = scenario_world::ScenarioModule::instantiate(&mut store, component, &linker)?;
+        Ok(Self { store, bindings })
+    }
+
+    pub fn setup(&mut self, config: &str) -> Result<String> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_setup(&mut self.store, config)
+    }
+
+    pub fn begin_day(&mut self, day: u32, total: u32) -> Result<String> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_begin_day(&mut self.store, day, total)
+    }
+
+    pub fn turn_messages(&mut self, agent: u32) -> Result<Vec<(String, String)>> {
+        let api = self.bindings.agentmodules_core_scenario();
+        let msgs: Vec<Msg> = api.call_turn_messages(&mut self.store, agent)?;
+        Ok(msgs.into_iter().map(|m| (m.role, m.content)).collect())
+    }
+
+    pub fn action_of(&mut self, agent: u32, reply: &str) -> Result<String> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_action_of(&mut self.store, agent, reply)
+    }
+
+    pub fn context(&mut self) -> Result<String> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_context(&mut self.store)
+    }
+
+    pub fn record_turn(
+        &mut self,
+        agent: u32,
+        delivered: Option<&str>,
+        controls: &str,
+        latency_ms: u64,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_record_turn(&mut self.store, agent, delivered, controls, latency_ms, error)
+    }
+
+    pub fn end_day(&mut self) -> Result<bool> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_end_day(&mut self.store)
+    }
+
+    pub fn snapshot(&mut self) -> Result<String> {
+        let api = self.bindings.agentmodules_core_scenario();
+        api.call_snapshot(&mut self.store)
     }
 }

@@ -3,6 +3,6 @@ resolver = "2"
 members = [
     "host",
 ]
-# Los modulos wasm (modules/*) son crates independientes compilados a
-# wasm32-wasip2; no entran en el workspace nativo para evitar que
-# `cargo build` del host intente compilarlos para el target host.
+# The wasm modules (modules/*) are standalone crates built for wasm32-wasip2;
+# they stay out of the native workspace so `cargo build` does not try to
+# compile them for the host target.

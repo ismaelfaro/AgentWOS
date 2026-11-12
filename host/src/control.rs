@@ -3,72 +3,72 @@ use serde_json::{json, Value};
 use wasmtime::component::Linker;
 use wasmtime::Store;
 
-use crate::runtime::control_world::exports::agentmodules::core::control::{Recursos, Veredicto};
+use crate::runtime::control_world::exports::agentmodules::core::control::Verdict;
 use crate::runtime::control_world::ControlModule;
 use crate::runtime::{Components, WasiState};
 
 struct ControlInstance {
-    nombre: String,
+    name: String,
     store: Store<WasiState>,
     bindings: ControlModule,
 }
 
-/// Cadena de modulos de control del OS. Corre en orden: `modify` cambia el
-/// texto que ven los siguientes, `block` corta la cadena y el mensaje no se
-/// entrega (la accion del colono no se ejecuta).
+/// Chain of OS control modules. Runs in order: `modify` changes the text the
+/// following modules see; `block` stops the chain and the message is not
+/// delivered (the colonist's action is not executed).
 pub struct ControlChain {
-    controles: Vec<ControlInstance>,
+    controls: Vec<ControlInstance>,
 }
 
-pub struct Resultado {
-    pub entregado: Option<String>,
-    pub registros: Vec<Value>,
+pub struct Outcome {
+    pub delivered: Option<String>,
+    pub records: Vec<Value>,
 }
 
 impl ControlChain {
     pub fn spawn(c: &Components) -> Result<Self> {
-        let controles = c
+        let controls = c
             .controls
             .iter()
-            .map(|(nombre, comp)| {
+            .map(|(name, comp)| {
                 let mut store = Store::new(&c.engine, WasiState::new(&[]));
                 let mut linker = Linker::<WasiState>::new(&c.engine);
                 wasmtime_wasi::add_to_linker_sync(&mut linker)?;
                 let bindings = ControlModule::instantiate(&mut store, comp, &linker)?;
-                Ok(ControlInstance { nombre: nombre.clone(), store, bindings })
+                Ok(ControlInstance { name: name.clone(), store, bindings })
             })
             .collect::<Result<_>>()?;
-        Ok(Self { controles })
+        Ok(Self { controls })
     }
 
-    pub fn nombres(&self) -> Vec<String> {
-        self.controles.iter().map(|c| c.nombre.clone()).collect()
+    pub fn names(&self) -> Vec<String> {
+        self.controls.iter().map(|c| c.name.clone()).collect()
     }
 
-    pub fn aplicar(&mut self, autor: &str, texto: String, recursos: Recursos) -> Resultado {
-        let mut actual = texto;
-        let mut registros = Vec::new();
-        for ctrl in &mut self.controles {
-            let r = ctrl
+    pub fn apply(&mut self, author: &str, text: String, context: &str) -> Outcome {
+        let mut current = text;
+        let mut records = Vec::new();
+        for ctrl in &mut self.controls {
+            let result = ctrl
                 .bindings
                 .agentmodules_core_control()
-                .call_inspect(&mut ctrl.store, autor, &actual, recursos.clone());
-            let (tipo, detalle) = match r {
-                Ok(Veredicto::Allow) => ("allow", String::new()),
-                Ok(Veredicto::Modify(t)) => {
-                    actual = t;
-                    ("modify", "texto modificado".to_string())
+                .call_inspect(&mut ctrl.store, author, &current, context);
+            let (kind, detail) = match result {
+                Ok(Verdict::Allow) => ("allow", String::new()),
+                Ok(Verdict::Modify(t)) => {
+                    current = t;
+                    ("modify", "text modified".to_string())
                 }
-                Ok(Veredicto::Block(razon)) => ("block", razon),
-                Ok(Veredicto::Flag(razon)) => ("flag", razon),
-                // Un control que falla no debe tumbar la colonia: se registra y se sigue.
+                Ok(Verdict::Block(reason)) => ("block", reason),
+                Ok(Verdict::Flag(reason)) => ("flag", reason),
+                // A failing control must not take the colony down: log it and carry on.
                 Err(e) => ("error", e.to_string()),
             };
-            registros.push(json!({ "modulo": ctrl.nombre, "veredicto": tipo, "detalle": detalle }));
-            if tipo == "block" {
-                return Resultado { entregado: None, registros };
+            records.push(json!({ "module": ctrl.name, "verdict": kind, "detail": detail }));
+            if kind == "block" {
+                return Outcome { delivered: None, records };
             }
         }
-        Resultado { entregado: Some(actual), registros }
+        Outcome { delivered: Some(current), records }
     }
 }

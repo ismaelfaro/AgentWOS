@@ -17,7 +17,7 @@ enum Backend {
     Local,
 }
 
-/// Prefijo del model decide backend: "openrouter/<id>" o "local/<id>".
+/// The model prefix selects the backend: "openrouter/<id>" or "local/<id>".
 fn route(model: &str) -> Result<(Backend, &str), CallError> {
     if let Some(id) = model.strip_prefix("openrouter/") {
         Ok((Backend::OpenRouter, id))
@@ -25,7 +25,7 @@ fn route(model: &str) -> Result<(Backend, &str), CallError> {
         Ok((Backend::Local, id))
     } else {
         Err(CallError::InvalidInput(format!(
-            "model '{model}' debe empezar por 'openrouter/' o 'local/'"
+            "model '{model}' must start with 'openrouter/' or 'local/'"
         )))
     }
 }
@@ -56,10 +56,10 @@ async fn post_chat(url: &str, api_key: Option<String>, body: Value) -> Result<St
     parsed["choices"][0]["message"]["content"]
         .as_str()
         .map(str::to_string)
-        .ok_or_else(|| format!("respuesta sin choices[0].message.content: {text}"))
+        .ok_or_else(|| format!("response has no choices[0].message.content: {text}"))
 }
 
-/// API key viene del env del host (WasiCtx), nunca hardcodeada ni en el wasm.
+/// The API key comes from the host environment (WasiCtx), never hardcoded in the wasm.
 async fn complete_async(messages: Vec<Message>, model: String) -> Result<String, CallError> {
     let (backend, model_id) = route(&model)?;
 
@@ -72,7 +72,7 @@ async fn complete_async(messages: Vec<Message>, model: String) -> Result<String,
     let result = match backend {
         Backend::OpenRouter => {
             let key = std::env::var("OPENROUTER_API_KEY").map_err(|_| {
-                CallError::InvalidInput("falta OPENROUTER_API_KEY en el env del host".into())
+                CallError::InvalidInput("OPENROUTER_API_KEY missing from the host environment".into())
             })?;
             post_chat(OPENROUTER_URL, Some(key), body).await
         }
@@ -85,7 +85,7 @@ async fn complete_async(messages: Vec<Message>, model: String) -> Result<String,
 impl Guest for Component {
     fn complete(messages: Vec<Message>, model: String) -> Result<String, CallError> {
         if messages.is_empty() {
-            return Err(CallError::InvalidInput("sin mensajes".into()));
+            return Err(CallError::InvalidInput("no messages".into()));
         }
         wstd::runtime::block_on(complete_async(messages, model))
     }

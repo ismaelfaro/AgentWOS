@@ -12,7 +12,7 @@ impl Guest for Component {
     fn describe() -> String {
         json!({
             "name": "echo",
-            "description": "Devuelve el texto recibido, en mayusculas. Ejemplo de tool minimo.",
+            "description": "Returns the input text in uppercase. Minimal example tool.",
             "json_schema": {
                 "type": "object",
                 "properties": { "text": { "type": "string" } },
@@ -29,7 +29,7 @@ impl Guest for Component {
         let text = args
             .get("text")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| CallError::InvalidInput("falta campo 'text'".into()))?;
+            .ok_or_else(|| CallError::InvalidInput("missing field 'text'".into()))?;
 
         Ok(json!({ "result": text.to_uppercase() }).to_string())
     }

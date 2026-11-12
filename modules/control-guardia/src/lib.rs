@@ -3,44 +3,48 @@ wit_bindgen::generate!({
     path: "../../wit/world.wit",
 });
 
-use exports::agentmodules::core::control::{Guest, Recursos, Veredicto};
+use exports::agentmodules::core::control::{Guest, Verdict};
+use serde_json::Value;
 
 struct Component;
 
 const MAX_CHARS: usize = 400;
-const PROHIBIDAS: [&str; 2] = ["sabotaje", "apagar todo"];
-const ABUNDANCIA: [&str; 3] = ["abundante", "sobra", "ilimitad"];
-const UMBRAL_CRITICO: f64 = 25.0;
+const FORBIDDEN: [&str; 2] = ["sabotage", "shut down everything"];
+const ABUNDANCE: [&str; 3] = ["abundant", "plenty", "unlimited"];
+const CRITICAL_THRESHOLD: f64 = 25.0;
 
-fn recurso_critico(r: &Recursos) -> Option<&'static str> {
-    [("agua", r.agua), ("comida", r.comida), ("energia", r.energia), ("oxigeno", r.oxigeno)]
-        .into_iter()
-        .find(|(_, v)| *v < UMBRAL_CRITICO)
-        .map(|(nombre, _)| nombre)
+/// Reads `context` as JSON of percentages, e.g. {"water": 40.0, "food": 80.0}.
+/// Any numeric field below the threshold counts as critical.
+fn critical_resource(context: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(context).ok()?;
+    v.as_object()?
+        .iter()
+        .find(|(_, val)| val.as_f64().is_some_and(|x| x < CRITICAL_THRESHOLD))
+        .map(|(name, _)| name.clone())
 }
 
 impl Guest for Component {
-    fn inspect(_autor: String, texto: String, recursos: Recursos) -> Veredicto {
-        let lower = texto.to_lowercase();
+    fn inspect(_author: String, text: String, context: String) -> Verdict {
+        let lower = text.to_lowercase();
 
-        if PROHIBIDAS.iter().any(|p| lower.contains(p)) {
-            return Veredicto::Block("propone sabotaje o apagado total".into());
+        if FORBIDDEN.iter().any(|p| lower.contains(p)) {
+            return Verdict::Block("proposes sabotage or a full shutdown".into());
         }
 
-        if texto.chars().count() > MAX_CHARS {
-            let corto: String = texto.chars().take(MAX_CHARS).collect();
-            return Veredicto::Modify(format!("{corto}..."));
+        if text.chars().count() > MAX_CHARS {
+            let short: String = text.chars().take(MAX_CHARS).collect();
+            return Verdict::Modify(format!("{short}..."));
         }
 
-        if let Some(nombre) = recurso_critico(&recursos) {
-            if ABUNDANCIA.iter().any(|p| lower.contains(p)) {
-                return Veredicto::Flag(format!(
-                    "afirma abundancia pero {nombre} esta por debajo del {UMBRAL_CRITICO}%"
+        if let Some(name) = critical_resource(&context) {
+            if ABUNDANCE.iter().any(|p| lower.contains(p)) {
+                return Verdict::Flag(format!(
+                    "claims abundance but {name} is below {CRITICAL_THRESHOLD}%"
                 ));
             }
         }
 
-        Veredicto::Allow
+        Verdict::Allow
     }
 }
 

@@ -1,12 +1,12 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Colonia Marte OS</title>
+<title>Mars Colony OS</title>
 <style>
   :root { --bg:#f6f4f1; --card:#fff; --ink:#22201c; --muted:#7a766e; --line:#dcd7cf; --soft:#efebe5;
-          --agua:#2b7bb9; --comida:#4c9a3c; --energia:#c98a12; --oxigeno:#b04a7a; --accent:#a8502d;
+          --water:#2b7bb9; --food:#4c9a3c; --energy:#c98a12; --oxygen:#b04a7a; --accent:#a8502d;
           --ok:#3f9e5a; --warn:#d99a1e; --bad:#c0392b; }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#1b1a18; --card:#26241f; --ink:#ece8e1; --muted:#9a958b; --line:#3a372f; --soft:#2f2c26; --accent:#e08a5f; }
@@ -17,9 +17,9 @@
   header { padding:12px 20px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap; }
   header h1 { font-size:17px; margin:0; }
   .pill { font-size:12px; border-radius:999px; padding:2px 10px; border:1px solid var(--line); color:var(--muted); }
-  .pill.vivo { border-color:var(--ok); color:var(--ok); }
-  .pill.fin { border-color:var(--muted); }
-  .pill.colapso { border-color:var(--bad); color:var(--bad); }
+  .pill.live { border-color:var(--ok); color:var(--ok); }
+  .pill.done { border-color:var(--muted); }
+  .pill.collapse { border-color:var(--bad); color:var(--bad); }
   .kpis { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:10px; padding:12px 20px 0; }
   .kpi { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px 12px; }
   .kpi span { color:var(--muted); font-size:12px; display:block; }
@@ -31,13 +31,13 @@
   aside button.sel { border-color:var(--accent); background:var(--card); }
   aside small { display:block; color:var(--muted); font-size:12px; }
   .badge { font-size:11px; padding:0 6px; border-radius:4px; margin-left:4px; border:1px solid currentColor; }
-  .badge.bad { color:var(--bad); } .badge.warn { color:var(--warn); } .badge.vivo { color:var(--ok); }
+  .badge.bad { color:var(--bad); } .badge.warn { color:var(--warn); } .badge.live { color:var(--ok); }
   main { padding:12px 20px 30px; min-width:0; }
   .grid2 { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:14px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:14px; min-width:0; }
   .card h2 { font-size:14px; margin:0 0 8px; display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
   .card h2 small { color:var(--muted); font-weight:400; font-size:12px; }
-  .barra { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .btn { border:1px solid var(--line); background:var(--card); border-radius:6px; padding:4px 10px; cursor:pointer; }
   .btn.on { border-color:var(--accent); color:var(--accent); }
   .btn:disabled { opacity:.4; cursor:default; }
@@ -48,26 +48,26 @@
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th { text-align:left; color:var(--muted); font-weight:500; font-size:12px; padding:4px 6px; border-bottom:1px solid var(--line); }
   td { padding:6px; border-bottom:1px solid var(--soft); vertical-align:top; }
-  tr.accion td { color:var(--muted); font-size:12px; padding-top:0; padding-left:21px; }
-  tr.fila td { border-bottom:0; }
+  tr.action td { color:var(--muted); font-size:12px; padding-top:0; padding-left:21px; }
+  tr.row td { border-bottom:0; }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
-  .turno { border-left:3px solid var(--line); padding:6px 12px; margin-bottom:10px; }
-  .turno.actual { border-left-color:var(--accent); background:var(--soft); }
-  .turno.bloq { border-left-color:var(--bad); }
-  .turno .who { font-weight:600; }
-  .turno .meta { color:var(--muted); font-size:12px; margin-left:6px; }
-  .turno p { margin:4px 0 0; white-space:pre-wrap; }
+  .turn { border-left:3px solid var(--line); padding:6px 12px; margin-bottom:10px; }
+  .turn.current { border-left-color:var(--accent); background:var(--soft); }
+  .turn.blocked { border-left-color:var(--bad); }
+  .turn .who { font-weight:600; }
+  .turn .meta { color:var(--muted); font-size:12px; margin-left:6px; }
+  .turn p { margin:4px 0 0; white-space:pre-wrap; }
   .tag { display:inline-block; font-size:11px; border:1px solid var(--line); border-radius:4px; padding:0 6px; margin:4px 4px 0 0; color:var(--muted); }
   .tag.block, .tag.error { border-color:var(--bad); color:var(--bad); }
   .tag.flag, .tag.modify, .tag.fmt { border-color:var(--warn); color:var(--warn); }
   .feed { max-height:260px; overflow-y:auto; }
   .feed div { padding:5px 0; border-bottom:1px solid var(--soft); font-size:13px; }
-  .feed .cuando { color:var(--muted); font-size:12px; margin-right:6px; font-variant-numeric:tabular-nums; }
-  .leyenda { font-size:12px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }
-  .leyenda i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:4px; }
+  .feed .when { color:var(--muted); font-size:12px; margin-right:6px; font-variant-numeric:tabular-nums; }
+  .legend { font-size:12px; color:var(--muted); display:flex; gap:12px; flex-wrap:wrap; }
+  .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:4px; }
+  .legend i.dot { width:10px; height:10px; border-radius:50%; }
   svg text { fill:var(--muted); font-size:11px; }
-  .vacio { color:var(--muted); padding:24px; text-align:center; }
-  .oculto { display:none; }
+  .empty { color:var(--muted); padding:24px; text-align:center; }
   @media (max-width: 980px) { .grid2 { grid-template-columns:1fr; } .kpis { grid-template-columns:repeat(3, minmax(0,1fr)); } }
   @media (max-width: 680px) {
     .layout { grid-template-columns:1fr; }
@@ -80,80 +80,86 @@
 </head>
 <body>
 <header>
-  <h1>Colonia Marte OS</h1>
-  <span class="pill" id="estado-run">esperando datos</span>
+  <h1>Mars Colony OS</h1>
+  <span class="pill" id="run-status">waiting for data</span>
   <span class="cursor-txt" id="meta"></span>
 </header>
 <div class="kpis" id="kpis"></div>
 <div class="layout">
-  <aside id="dias"></aside>
+  <aside id="days"></aside>
   <main>
     <div class="card">
-      <div class="barra">
-        <button class="btn" id="b-prev" title="turno anterior">&lt;</button>
-        <button class="btn on" id="b-play">reproducir</button>
-        <button class="btn" id="b-next" title="turno siguiente">&gt;</button>
-        <input type="range" id="scrub" min="0" max="0" value="0" aria-label="posicion en la simulacion">
-        <select id="vel" aria-label="velocidad">
-          <option value="2000">lenta</option>
+      <div class="bar">
+        <button class="btn" id="b-prev" title="previous turn">&lt;</button>
+        <button class="btn on" id="b-play">play</button>
+        <button class="btn" id="b-next" title="next turn">&gt;</button>
+        <input type="range" id="scrub" min="0" max="0" value="0" aria-label="position in the simulation">
+        <select id="speed" aria-label="speed">
+          <option value="2000">slow</option>
           <option value="1000" selected>normal</option>
-          <option value="350">rapida</option>
+          <option value="350">fast</option>
         </select>
-        <button class="btn on" id="b-vivo" title="seguir el ultimo turno a medida que llega">en vivo</button>
+        <button class="btn on" id="b-live" title="follow the latest turn as it arrives">live</button>
         <span class="cursor-txt" id="cursor-txt"></span>
       </div>
     </div>
 
     <div class="grid2">
       <div class="card">
-        <h2>Mapa de la base <small>color = estado, numero = efecto por turno</small></h2>
-        <div id="mapa"></div>
+        <h2>Base map <small>color = status, number = effect of the turn</small></h2>
+        <div class="legend">
+          <span><i class="dot" style="background:var(--ok)"></i>operating</span>
+          <span><i class="dot" style="background:var(--warn)"></i>alert</span>
+          <span><i class="dot" style="background:var(--bad)"></i>blocked by control</span>
+        </div>
+        <div id="map"></div>
       </div>
       <div class="card">
-        <h2>Colonos <small>estado en el cursor</small></h2>
-        <div id="colonos"></div>
+        <h2>Colonists <small>status at the cursor</small></h2>
+        <div id="colonists"></div>
       </div>
     </div>
 
     <div class="grid2">
       <div class="card">
-        <h2>Recursos turno a turno <small>% del valor inicial</small></h2>
-        <div class="leyenda">
-          <span><i style="background:var(--agua)"></i>agua</span>
-          <span><i style="background:var(--comida)"></i>comida</span>
-          <span><i style="background:var(--energia)"></i>energia</span>
-          <span><i style="background:var(--oxigeno)"></i>oxigeno</span>
+        <h2>Resources turn by turn <small>% of initial value</small></h2>
+        <div class="legend">
+          <span><i style="background:var(--water)"></i>water</span>
+          <span><i style="background:var(--food)"></i>food</span>
+          <span><i style="background:var(--energy)"></i>energy</span>
+          <span><i style="background:var(--oxygen)"></i>oxygen</span>
         </div>
-        <div id="grafica"></div>
+        <div id="chart"></div>
       </div>
       <div class="card">
-        <h2>Auditoria del OS <small id="audit-n"></small></h2>
+        <h2>OS audit <small id="audit-count"></small></h2>
         <div class="feed" id="audit"></div>
       </div>
     </div>
 
     <div class="card">
-      <h2><span id="dia-titulo">Dia</span> <small id="dia-estado"></small></h2>
-      <div class="barra" id="filtros"></div>
-      <input type="search" id="buscar" placeholder="buscar en las acciones...">
-      <div id="turnos"></div>
+      <h2><span id="day-title">Day</span> <small id="day-status"></small></h2>
+      <div class="bar" id="filters"></div>
+      <input type="search" id="search" placeholder="search actions...">
+      <div id="turns"></div>
     </div>
   </main>
 </div>
 
 <script>
-const RECURSOS = ["agua", "comida", "energia", "oxigeno"];
-const UNIDAD = { agua: "L", comida: "kg", energia: "kWh", oxigeno: "%" };
-const COLOR_ESTADO = { operando: "var(--ok)", alerta: "var(--warn)", bloqueado: "var(--bad)" };
-const POS_ZONA = {
-  invernadero: [0, 0, "Invernadero"], enfermeria: [1, 0, "Enfermeria"], reactor: [2, 0, "Reactor"],
-  planta_agua: [0, 1, "Planta de agua"], habitat: [1, 1, "Habitat central"], exterior: [2, 1, "Exterior / rover"],
+const RESOURCES = ["water", "food", "energy", "oxygen"];
+const UNIT = { water: "L", food: "kg", energy: "kWh", oxygen: "%" };
+const STATUS_COLOR = { operating: "var(--ok)", alert: "var(--warn)", blocked: "var(--bad)" };
+const ZONE_POS = {
+  greenhouse: [0, 0, "Greenhouse"], medbay: [1, 0, "Medbay"], reactor: [2, 0, "Reactor"],
+  water_plant: [0, 1, "Water plant"], habitat: [1, 1, "Central habitat"], outside: [2, 1, "Outside / rover"],
 };
+const SHORT_UNIT = { water: "L", food: "kg", energy: "kWh", oxygen: "% O2" };
 
-const st = { datos: null, firma: "", cursor: 0, vivo: true, playing: false, timer: null, filtro: null, q: "" };
+const st = { data: null, signature: "", cursor: 0, live: true, playing: false, timer: null, filter: null, query: "" };
 
-// ---------- utilidades DOM (todo el texto del LLM entra como textContent) ----------
-function el(tag, attrs = {}, hijos = []) {
+// ---------- DOM helpers (all LLM text goes in as textContent) ----------
+function el(tag, attrs = {}, children = []) {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
     if (v === null || v === undefined || v === false) continue;
@@ -161,323 +167,329 @@ function el(tag, attrs = {}, hijos = []) {
     else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
     else n.setAttribute(k, v === true ? "" : v);
   }
-  for (const h of [].concat(hijos)) if (h !== null && h !== undefined) n.append(h);
+  for (const c of [].concat(children)) if (c !== null && c !== undefined) n.append(c);
   return n;
 }
-function svgEl(svg, tag, attrs, texto) {
+function svgEl(svg, tag, attrs, text) {
   const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
   for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  if (texto !== undefined) n.textContent = texto;
+  if (text !== undefined) n.textContent = text;
   svg.append(n);
   return n;
 }
-function nuevoSvg(w, h) {
+function newSvg(w, h) {
   const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   s.setAttribute("viewBox", `0 0 ${w} ${h}`);
   s.style.width = "100%";
   return s;
 }
-const iniciales = (n) => n.split(" ").pop().slice(0, 2).toUpperCase();
-const fmt = (v, k) => (k === "oxigeno" ? v.toFixed(1) : Math.round(v)) + " " + UNIDAD[k];
-const pct = (v, k) => (k === "oxigeno" ? v : (v / st.datos.inicial[k]) * 100);
+const initials = (name) => name.split(" ").pop().slice(0, 2).toUpperCase();
+const fmt = (v, k) => (k === "oxygen" ? v.toFixed(1) : Math.round(v)) + " " + UNIT[k];
+const pct = (v, k) => (k === "oxygen" ? v : (v / st.data.initial[k]) * 100);
+const zoneLabel = (z) => (ZONE_POS[z] ? ZONE_POS[z][2] : z.replace("_", " "));
 
-// ---------- modelo: lista plana de turnos, el cursor indexa sobre ella ----------
-function turnosPlanos() {
+// ---------- model: flat list of turns, the cursor indexes into it ----------
+function flatTurns() {
   const out = [];
-  st.datos.dias.forEach((d, di) => d.turnos.forEach((t, ti) => out.push({ ...t, dia: d.dia, di, ti })));
+  st.data.days.forEach((d, di) => d.turns.forEach((t, ti) => out.push({ ...t, day: d.day, di, ti })));
   return out;
 }
-function enCursor() {
-  const planos = turnosPlanos();
-  const n = Math.min(st.cursor, planos.length);
-  return { planos, vistos: planos.slice(0, n), actual: planos[n - 1] || null };
+function atCursor() {
+  const all = flatTurns();
+  const n = Math.min(st.cursor, all.length);
+  return { all, seen: all.slice(0, n), current: all[n - 1] || null };
 }
-function estadoColonos(vistos) {
+function colonistStatus(seen) {
   const m = {};
-  for (const c of st.datos.colonos) m[c.agente] = { ...c, zona: "habitat", estado: "operando", accion: "", latencia_ms: null, dia: null };
-  for (const t of vistos) Object.assign(m[t.agente], t);
+  for (const c of st.data.colonists) m[c.agent] = { ...c, zone: "habitat", status: "operating", action: "", latency_ms: null };
+  for (const t of seen) Object.assign(m[t.agent], t);
   return m;
 }
 
-// ---------- carga ----------
-function cargar() {
+// ---------- loading ----------
+function load() {
   return new Promise((resolve) => {
-    document.getElementById("datos-sim")?.remove();
-    const s = el("script", { id: "datos-sim", src: "../sim/runs/latest.js?t=" + Date.now() });
+    document.getElementById("sim-data")?.remove();
+    const s = el("script", { id: "sim-data", src: "../sim/runs/latest.js?t=" + Date.now() });
     s.onload = () => resolve(window.SIM_DATA || null);
     s.onerror = () => resolve(null);
     document.body.append(s);
   });
 }
 
-async function refrescar() {
-  const d = await cargar();
-  const firma = d ? JSON.stringify(d) : "";
-  if (firma === st.firma) return;
-  st.firma = firma;
-  st.datos = d;
-  if (d && st.vivo && !st.playing) st.cursor = turnosPlanos().length;
+async function refresh() {
+  const d = await load();
+  const signature = d ? JSON.stringify(d) : "";
+  if (signature === st.signature) return;
+  st.signature = signature;
+  st.data = d;
+  if (d && st.live && !st.playing) st.cursor = flatTurns().length;
   render();
 }
 
 // ---------- render ----------
 function render() {
-  const d = st.datos;
-  const pill = document.getElementById("estado-run");
+  const d = st.data;
+  const pill = document.getElementById("run-status");
   if (!d) {
-    pill.textContent = "sin datos";
+    pill.textContent = "no data";
     pill.className = "pill";
-    document.getElementById("meta").textContent = "ejecuta el host con --colony N --log sim/runs/latest.js";
+    document.getElementById("meta").textContent = "run the host with --colony N --log sim/runs/latest.js";
     return;
   }
-  const colapso = d.dias.some((x) => x.colapso);
-  pill.textContent = colapso ? "colapso" : d.terminado ? "terminada" : "en vivo";
-  pill.className = "pill " + (colapso ? "colapso" : d.terminado ? "fin" : "vivo");
+  const collapsed = d.days.some((x) => x.collapse);
+  pill.textContent = collapsed ? "collapsed" : d.finished ? "finished" : "live";
+  pill.className = "pill " + (collapsed ? "collapse" : d.finished ? "done" : "live");
   document.getElementById("meta").textContent =
-    `modelo ${d.modelo} - controles: ${d.controles.length ? d.controles.join(", ") : "ninguno"}`;
+    `model ${d.model} - controls: ${d.controls.length ? d.controls.join(", ") : "none"}`;
 
-  const c = enCursor();
+  const c = atCursor();
   renderKpis(c);
-  renderBarra(c);
-  renderDias(c);
-  renderMapa(c);
-  renderColonos(c);
-  renderGrafica(c);
+  renderBar(c);
+  renderDays(c);
+  renderMap(c);
+  renderColonists(c);
+  renderChart(c);
   renderAudit(c);
-  renderTurnos(c);
+  renderTurns(c);
 }
 
-function renderKpis({ planos }) {
-  const d = st.datos;
-  const veredictos = planos.flatMap((t) => t.controles);
-  const lat = planos.map((t) => t.latencia_ms).filter((x) => x != null);
-  const media = lat.length ? lat.reduce((a, b) => a + b, 0) / lat.length : 0;
-  const fmtOk = planos.length ? planos.filter((t) => t.formato_ok).length / planos.length : 1;
-  const k = [
-    ["dia", `${d.dias.length} / ${d.dias_total}`],
-    ["turnos", planos.length],
-    ["bloqueos", veredictos.filter((v) => v.veredicto === "block").length],
-    ["avisos", veredictos.filter((v) => v.veredicto === "flag" || v.veredicto === "modify").length],
-    ["latencia media", (media / 1000).toFixed(1) + " s"],
-    ["JSON valido", Math.round(fmtOk * 100) + "%"],
+function renderKpis({ all }) {
+  const d = st.data;
+  const verdicts = all.flatMap((t) => t.controls);
+  const lat = all.map((t) => t.latency_ms).filter((x) => x != null);
+  const avg = lat.length ? lat.reduce((a, b) => a + b, 0) / lat.length : 0;
+  const formatOk = all.length ? all.filter((t) => t.format_ok).length / all.length : 1;
+  const kpis = [
+    ["day", `${d.days.length} / ${d.days_total}`],
+    ["turns", all.length],
+    ["blocks", verdicts.filter((v) => v.verdict === "block").length],
+    ["warnings", verdicts.filter((v) => v.verdict === "flag" || v.verdict === "modify").length],
+    ["avg latency", (avg / 1000).toFixed(1) + " s"],
+    ["valid JSON", Math.round(formatOk * 100) + "%"],
   ];
-  document.getElementById("kpis").replaceChildren(...k.map(([a, b]) => el("div", { class: "kpi" }, [el("span", {}, a), el("strong", {}, String(b))])));
+  document.getElementById("kpis").replaceChildren(...kpis.map(([a, b]) =>
+    el("div", { class: "kpi" }, [el("span", {}, a), el("strong", {}, String(b))])));
 }
 
-function renderBarra({ planos, actual }) {
+function renderBar({ all, current }) {
   const scrub = document.getElementById("scrub");
-  scrub.max = planos.length;
-  scrub.value = Math.min(st.cursor, planos.length);
+  scrub.max = all.length;
+  scrub.value = Math.min(st.cursor, all.length);
   document.getElementById("b-prev").disabled = st.cursor <= 0;
-  document.getElementById("b-next").disabled = st.cursor >= planos.length;
-  document.getElementById("b-play").textContent = st.playing ? "pausa" : "reproducir";
-  document.getElementById("b-vivo").classList.toggle("on", st.vivo);
-  document.getElementById("cursor-txt").textContent = actual
-    ? `turno ${st.cursor}/${planos.length} - dia ${actual.dia}, ${actual.agente}`
-    : `inicio - ${planos.length} turnos`;
+  document.getElementById("b-next").disabled = st.cursor >= all.length;
+  document.getElementById("b-play").textContent = st.playing ? "pause" : "play";
+  document.getElementById("b-live").classList.toggle("on", st.live);
+  document.getElementById("cursor-txt").textContent = current
+    ? `turn ${st.cursor}/${all.length} - day ${current.day}, ${current.agent}`
+    : `start - ${all.length} turns`;
 }
 
-function irA(n, { manual = true } = {}) {
-  const total = turnosPlanos().length;
+function goTo(n, { manual = true } = {}) {
+  const total = flatTurns().length;
   st.cursor = Math.max(0, Math.min(n, total));
-  if (manual) st.vivo = st.cursor === total;
+  if (manual) st.live = st.cursor === total;
   render();
 }
 
-function renderDias({ actual }) {
-  const diaSel = actual ? actual.dia : null;
-  const cont = document.getElementById("dias");
-  cont.replaceChildren(...st.datos.dias.map((d) => {
-    const vs = d.turnos.flatMap((t) => t.controles);
-    const bloq = vs.filter((v) => v.veredicto === "block").length;
-    const avisos = vs.filter((v) => v.veredicto === "flag" || v.veredicto === "modify").length;
-    const primero = turnosPlanos().findIndex((t) => t.dia === d.dia);
+function renderDays({ current }) {
+  const selectedDay = current ? current.day : null;
+  const cont = document.getElementById("days");
+  const all = flatTurns();
+  cont.replaceChildren(...st.data.days.map((d) => {
+    const vs = d.turns.flatMap((t) => t.controls);
+    const blocks = vs.filter((v) => v.verdict === "block").length;
+    const warns = vs.filter((v) => v.verdict === "flag" || v.verdict === "modify").length;
+    const first = all.findIndex((t) => t.day === d.day);
     return el("button", {
-      class: d.dia === diaSel ? "sel" : "",
-      onclick: () => { pausar(); irA(primero < 0 ? st.cursor : primero + d.turnos.length); },
+      class: d.day === selectedDay ? "sel" : "",
+      onclick: () => { pause(); goTo(first < 0 ? st.cursor : first + d.turns.length); },
     }, [
-      el("strong", {}, "Dia " + d.dia),
-      d.en_curso ? el("span", { class: "badge vivo" }, "en curso") : null,
-      d.colapso ? el("span", { class: "badge bad" }, "colapso") : null,
-      bloq ? el("span", { class: "badge bad" }, bloq + " bloq") : null,
-      avisos ? el("span", { class: "badge warn" }, avisos + " aviso") : null,
-      el("small", {}, d.evento),
+      el("strong", {}, "Day " + d.day),
+      d.in_progress ? el("span", { class: "badge live" }, "in progress") : null,
+      d.collapse ? el("span", { class: "badge bad" }, "collapse") : null,
+      blocks ? el("span", { class: "badge bad" }, blocks + " blocked") : null,
+      warns ? el("span", { class: "badge warn" }, warns + " warning") : null,
+      el("small", {}, d.event),
     ]);
   }));
 }
 
-const CORTO = { agua: "L", comida: "kg", energia: "kWh", oxigeno: "% O2" };
-function efectoTexto(ef) {
-  return RECURSOS.filter((k) => ef[k]).map((k) => (ef[k] > 0 ? "+" : "") + (k === "oxigeno" ? ef[k] : Math.round(ef[k])) + " " + CORTO[k]).join("  ") || "sin efecto";
+function effectText(ef) {
+  return RESOURCES.filter((k) => ef[k]).map((k) =>
+    (ef[k] > 0 ? "+" : "") + (k === "oxygen" ? ef[k] : Math.round(ef[k])) + " " + SHORT_UNIT[k]).join("  ") || "no effect";
 }
 
-function renderMapa({ vistos, actual }) {
+function renderMap({ seen }) {
   const W = 600, H = 250, CW = 186, CH = 108, GX = 8, GY = 10;
-  const svg = nuevoSvg(W, H);
-  const efectos = Object.fromEntries((st.datos.zonas || []).map((z) => [z.zona, z.efecto]));
-  for (const [zona, [col, fila, nombre]] of Object.entries(POS_ZONA)) {
-    const x = GX + col * (CW + 12), y = GY + fila * (CH + 12);
-    const activa = actual && actual.zona === zona;
-    svgEl(svg, "rect", { x, y, width: CW, height: CH, rx: 8, fill: "var(--card)", stroke: activa ? "var(--accent)" : "var(--line)", "stroke-width": activa ? 2 : 1 });
-    svgEl(svg, "text", { x: x + 8, y: y + 16, "font-size": 12, fill: "var(--ink)" }, nombre);
-    if (efectos[zona]) svgEl(svg, "text", { x: x + 8, y: y + CH - 8, "font-size": 10 }, efectoTexto(efectos[zona]));
+  const svg = newSvg(W, H);
+  const effects = Object.fromEntries((st.data.zones || []).map((z) => [z.zone, z.effect]));
+  const colonists = colonistStatus(seen);
+  const current = atCursor().current;
+  for (const [zone, [col, row, name]] of Object.entries(ZONE_POS)) {
+    const x = GX + col * (CW + 12), y = GY + row * (CH + 12);
+    const active = current && current.zone === zone;
+    svgEl(svg, "rect", { x, y, width: CW, height: CH, rx: 8, fill: "var(--card)", stroke: active ? "var(--accent)" : "var(--line)", "stroke-width": active ? 2 : 1 });
+    svgEl(svg, "text", { x: x + 8, y: y + 16, "font-size": 12, fill: "var(--ink)" }, name);
+    if (effects[zone]) svgEl(svg, "text", { x: x + 8, y: y + CH - 8, "font-size": 10 }, effectText(effects[zone]));
   }
-  const colonos = estadoColonos(vistos);
-  const porZona = {};
-  for (const c of Object.values(colonos)) (porZona[c.zona] ||= []).push(c);
-  for (const [zona, lista] of Object.entries(porZona)) {
-    const [col, fila] = POS_ZONA[zona] || POS_ZONA.habitat;
-    const cx0 = GX + col * (CW + 12) + CW / 2, cy = GY + fila * (CH + 12) + CH / 2 + 2;
-    lista.forEach((c, i) => {
-      const cx = cx0 + (i - (lista.length - 1) / 2) * 32;
-      const esActual = actual && actual.agente === c.agente;
-      if (esActual) svgEl(svg, "circle", { cx, cy, r: 17, fill: "none", stroke: "var(--accent)", "stroke-width": 2 });
-      svgEl(svg, "circle", { cx, cy, r: 13, fill: COLOR_ESTADO[c.estado] || "var(--muted)" });
-      svgEl(svg, "text", { x: cx, y: cy + 4, "text-anchor": "middle", fill: c.estado === "alerta" ? "#22201c" : "#fff", "font-size": 11, "font-weight": 600 }, iniciales(c.agente));
-      svgEl(svg, "title", {}, `${c.agente}: ${c.estado} en ${zona}`);
+  const byZone = {};
+  for (const c of Object.values(colonists)) (byZone[c.zone] ||= []).push(c);
+  for (const [zone, list] of Object.entries(byZone)) {
+    const [col, row] = ZONE_POS[zone] || ZONE_POS.habitat;
+    const cx0 = GX + col * (CW + 12) + CW / 2, cy = GY + row * (CH + 12) + CH / 2 + 2;
+    list.forEach((c, i) => {
+      const cx = cx0 + (i - (list.length - 1) / 2) * 32;
+      if (current && current.agent === c.agent) svgEl(svg, "circle", { cx, cy, r: 17, fill: "none", stroke: "var(--accent)", "stroke-width": 2 });
+      svgEl(svg, "circle", { cx, cy, r: 13, fill: STATUS_COLOR[c.status] || "var(--muted)" });
+      svgEl(svg, "text", { x: cx, y: cy + 4, "text-anchor": "middle", fill: c.status === "alert" ? "#22201c" : "#fff", "font-size": 11, "font-weight": 600 }, initials(c.agent));
+      svgEl(svg, "title", {}, `${c.agent}: ${c.status} in ${zone}`);
     });
   }
-  document.getElementById("mapa").replaceChildren(svg);
+  document.getElementById("map").replaceChildren(svg);
 }
 
-function renderColonos({ vistos, actual }) {
-  const colonos = Object.values(estadoColonos(vistos));
-  const filas = colonos.flatMap((c) => {
-    const bg = actual && actual.agente === c.agente ? "background:var(--soft)" : null;
-    const accion = c.accion ? (c.accion.length > 110 ? c.accion.slice(0, 110) + "..." : c.accion) : "sin accion todavia";
+function renderColonists({ seen, current }) {
+  const colonists = Object.values(colonistStatus(seen));
+  const rows = colonists.flatMap((c) => {
+    const bg = current && current.agent === c.agent ? "background:var(--soft)" : null;
+    const action = c.action ? (c.action.length > 110 ? c.action.slice(0, 110) + "..." : c.action) : "no action yet";
     return [
-      el("tr", { class: "fila", style: bg }, [
-        el("td", {}, [el("span", { class: "dot", style: `background:${COLOR_ESTADO[c.estado] || "var(--muted)"}` }), c.agente]),
-        el("td", {}, c.zona.replace("_", " ")),
-        el("td", {}, c.estado),
-        el("td", {}, c.latencia_ms != null ? (c.latencia_ms / 1000).toFixed(1) + " s" : "-"),
+      el("tr", { class: "row", style: bg }, [
+        el("td", {}, [el("span", { class: "dot", style: `background:${STATUS_COLOR[c.status] || "var(--muted)"}` }), c.agent]),
+        el("td", {}, zoneLabel(c.zone)),
+        el("td", {}, c.status),
+        el("td", {}, c.latency_ms != null ? (c.latency_ms / 1000).toFixed(1) + " s" : "-"),
       ]),
-      el("tr", { class: "accion", style: bg }, el("td", { colspan: 4, title: c.accion }, accion)),
+      el("tr", { class: "action", style: bg }, el("td", { colspan: 4, title: c.action }, action)),
     ];
   });
-  document.getElementById("colonos").replaceChildren(el("table", {}, [
-    el("thead", {}, el("tr", {}, ["colono", "zona", "estado", "lat."].map((h) => el("th", {}, h)))),
-    el("tbody", {}, filas),
+  document.getElementById("colonists").replaceChildren(el("table", {}, [
+    el("thead", {}, el("tr", {}, ["colonist", "zone", "status", "lat."].map((h) => el("th", {}, h)))),
+    el("tbody", {}, rows),
   ]));
 }
 
-function renderGrafica({ planos }) {
-  const cont = document.getElementById("grafica");
-  if (!planos.length) { cont.replaceChildren(el("div", { class: "vacio" }, "sin turnos todavia")); return; }
-  const puntos = [{ r: st.datos.inicial }, ...planos.map((t) => ({ r: t.recursos_tras_turno, t }))];
+function renderChart({ all }) {
+  const cont = document.getElementById("chart");
+  if (!all.length) { cont.replaceChildren(el("div", { class: "empty" }, "no turns yet")); return; }
+  const points = [{ r: st.data.initial }, ...all.map((t) => ({ r: t.resources_after_turn, t }))];
   const W = 620, H = 220, P = 34;
-  const xs = (i) => P + (i * (W - 2 * P)) / Math.max(1, puntos.length - 1);
+  const xs = (i) => P + (i * (W - 2 * P)) / Math.max(1, points.length - 1);
   const ys = (v) => H - P - (Math.max(0, Math.min(v, 120)) / 120) * (H - 2 * P);
-  const svg = nuevoSvg(W, H);
+  const svg = newSvg(W, H);
   for (const g of [0, 50, 100]) {
     svgEl(svg, "line", { x1: P, x2: W - P, y1: ys(g), y2: ys(g), stroke: "var(--line)" });
     svgEl(svg, "text", { x: 2, y: ys(g) + 4 }, g + "%");
   }
-  planos.forEach((t, i) => {
+  all.forEach((t, i) => {
     if (t.ti === 0) {
       svgEl(svg, "line", { x1: xs(i), x2: xs(i), y1: P - 10, y2: H - P, stroke: "var(--line)", "stroke-dasharray": "3 3" });
-      svgEl(svg, "text", { x: xs(i) + 3, y: P - 12 }, "d" + t.dia);
+      svgEl(svg, "text", { x: xs(i) + 3, y: P - 12 }, "d" + t.day);
     }
   });
-  for (const k of RECURSOS) {
-    svgEl(svg, "polyline", { points: puntos.map((p, i) => `${xs(i)},${ys(pct(p.r[k], k))}`).join(" "), fill: "none", stroke: `var(--${k})`, "stroke-width": 2, opacity: 0.35 });
-    const vistos = puntos.slice(0, st.cursor + 1);
-    svgEl(svg, "polyline", { points: vistos.map((p, i) => `${xs(i)},${ys(pct(p.r[k], k))}`).join(" "), fill: "none", stroke: `var(--${k})`, "stroke-width": 2.5 });
+  for (const k of RESOURCES) {
+    svgEl(svg, "polyline", { points: points.map((p, i) => `${xs(i)},${ys(pct(p.r[k], k))}`).join(" "), fill: "none", stroke: `var(--${k})`, "stroke-width": 2, opacity: 0.35 });
+    const seen = points.slice(0, st.cursor + 1);
+    svgEl(svg, "polyline", { points: seen.map((p, i) => `${xs(i)},${ys(pct(p.r[k], k))}`).join(" "), fill: "none", stroke: `var(--${k})`, "stroke-width": 2.5 });
   }
-  const cx = xs(Math.min(st.cursor, puntos.length - 1));
+  const cx = xs(Math.min(st.cursor, points.length - 1));
   svgEl(svg, "line", { x1: cx, x2: cx, y1: P - 6, y2: H - P, stroke: "var(--accent)", "stroke-width": 1.5 });
-  const r = puntos[Math.min(st.cursor, puntos.length - 1)].r;
-  svgEl(svg, "text", { x: P, y: H - 6 }, RECURSOS.map((k) => k + " " + fmt(r[k], k)).join("   "));
+  const r = points[Math.min(st.cursor, points.length - 1)].r;
+  svgEl(svg, "text", { x: P, y: H - 6 }, RESOURCES.map((k) => k + " " + fmt(r[k], k)).join("   "));
   cont.replaceChildren(svg);
 }
 
-function renderAudit({ vistos }) {
-  const eventos = [];
-  for (const t of vistos) {
-    for (const v of t.controles) if (v.veredicto !== "allow") eventos.push([t, v.veredicto, `${v.modulo}: ${v.detalle || v.veredicto}`]);
-    if (t.error) eventos.push([t, "error", t.error]);
-    else if (!t.formato_ok) eventos.push([t, "fmt", "respuesta fuera de formato JSON, zona inferida por texto"]);
+function renderAudit({ seen }) {
+  const events = [];
+  for (const t of seen) {
+    for (const v of t.controls) if (v.verdict !== "allow") events.push([t, v.verdict, `${v.module}: ${v.detail || v.verdict}`]);
+    if (t.error) events.push([t, "error", t.error]);
+    else if (!t.format_ok) events.push([t, "fmt", "reply not valid JSON, zone inferred from text"]);
   }
-  document.getElementById("audit-n").textContent = eventos.length + " eventos";
+  document.getElementById("audit-count").textContent = events.length + " events";
   const cont = document.getElementById("audit");
-  if (!eventos.length) { cont.replaceChildren(el("div", { class: "vacio" }, "sin intervenciones del OS hasta el cursor")); return; }
-  cont.replaceChildren(...eventos.reverse().map(([t, tipo, txt]) => el("div", {}, [
-    el("span", { class: "cuando" }, `d${t.dia} - ${t.agente}`),
-    el("span", { class: "tag " + tipo }, tipo),
-    " " + txt,
+  if (!events.length) { cont.replaceChildren(el("div", { class: "empty" }, "no OS interventions up to the cursor")); return; }
+  cont.replaceChildren(...events.reverse().map(([t, kind, text]) => el("div", {}, [
+    el("span", { class: "when" }, `d${t.day} - ${t.agent}`),
+    el("span", { class: "tag " + kind }, kind),
+    " " + text,
   ])));
 }
 
-function renderTurnos({ actual }) {
-  const dia = actual ? st.datos.dias.find((d) => d.dia === actual.dia) : st.datos.dias[0];
-  const turnosCont = document.getElementById("turnos");
-  if (!dia) { turnosCont.replaceChildren(el("div", { class: "vacio" }, "todavia no hay dias simulados")); return; }
-  document.getElementById("dia-titulo").textContent = `Dia ${dia.dia} - ${dia.evento}`;
-  const fin = dia.estado_fin ? "fin: " + RECURSOS.map((k) => fmt(dia.estado_fin[k], k)).join(", ") : "dia en curso";
-  document.getElementById("dia-estado").textContent = fin;
+function renderTurns({ current }) {
+  const day = current ? st.data.days.find((d) => d.day === current.day) : st.data.days[0];
+  const cont = document.getElementById("turns");
+  if (!day) { cont.replaceChildren(el("div", { class: "empty" }, "no days simulated yet")); return; }
+  document.getElementById("day-title").textContent = `Day ${day.day} - ${day.event}`;
+  document.getElementById("day-status").textContent = day.end_state
+    ? "end: " + RESOURCES.map((k) => fmt(day.end_state[k], k)).join(", ")
+    : "day in progress";
 
-  const agentes = st.datos.colonos.map((c) => c.agente);
-  document.getElementById("filtros").replaceChildren(
-    el("button", { class: "btn" + (st.filtro ? "" : " on"), onclick: () => { st.filtro = null; render(); } }, "todos"),
-    ...agentes.map((a) => el("button", { class: "btn" + (st.filtro === a ? " on" : ""), onclick: () => { st.filtro = a; render(); } }, a)),
+  document.getElementById("filters").replaceChildren(
+    el("button", { class: "btn" + (st.filter ? "" : " on"), onclick: () => { st.filter = null; render(); } }, "all"),
+    ...st.data.colonists.map((c) => el("button", {
+      class: "btn" + (st.filter === c.agent ? " on" : ""),
+      onclick: () => { st.filter = c.agent; render(); },
+    }, c.agent)),
   );
 
-  const limite = actual && actual.dia === dia.dia ? actual.ti + 1 : dia.turnos.length;
-  const q = st.q.trim().toLowerCase();
-  const items = dia.turnos.slice(0, limite)
-    .filter((t) => (!st.filtro || t.agente === st.filtro) && (!q || (t.accion || "").toLowerCase().includes(q)))
+  const limit = current && current.day === day.day ? current.ti + 1 : day.turns.length;
+  const q = st.query.trim().toLowerCase();
+  const items = day.turns.slice(0, limit)
+    .filter((t) => (!st.filter || t.agent === st.filter) && (!q || (t.action || "").toLowerCase().includes(q)))
     .map((t) => {
-      const esActual = actual && actual.dia === dia.dia && actual.ti === dia.turnos.indexOf(t);
-      return el("div", { class: "turno" + (esActual ? " actual" : "") + (t.estado === "bloqueado" ? " bloq" : "") }, [
-        el("div", {}, [el("span", { class: "who" }, t.agente), el("span", { class: "meta" }, `${t.zona.replace("_", " ")} - ${t.estado} - ${(t.latencia_ms / 1000).toFixed(1)} s`)]),
-        el("p", {}, t.error ? t.error : t.accion),
-        t.entregado && t.entregado !== t.accion ? el("p", { class: "meta" }, ["entregado tras control: ", t.entregado]) : null,
+      const isCurrent = current && current.day === day.day && current.ti === day.turns.indexOf(t);
+      return el("div", { class: "turn" + (isCurrent ? " current" : "") + (t.status === "blocked" ? " blocked" : "") }, [
+        el("div", {}, [el("span", { class: "who" }, t.agent), el("span", { class: "meta" }, `${zoneLabel(t.zone)} - ${t.status} - ${(t.latency_ms / 1000).toFixed(1)} s`)]),
+        el("p", {}, t.error ? t.error : t.action),
+        t.delivered && t.delivered !== t.action ? el("p", { class: "meta" }, ["delivered after control: ", t.delivered]) : null,
         el("div", {}, [
-          el("span", { class: "tag" }, "efecto: " + efectoTexto(t.efecto)),
-          t.formato_ok ? null : el("span", { class: "tag fmt" }, "fuera de formato"),
-          ...t.controles.filter((v) => v.veredicto !== "allow").map((v) => el("span", { class: "tag " + v.veredicto }, `${v.modulo} ${v.veredicto}: ${v.detalle}`)),
+          el("span", { class: "tag" }, "effect: " + effectText(t.effect)),
+          t.format_ok ? null : el("span", { class: "tag fmt" }, "not valid JSON"),
+          ...t.controls.filter((v) => v.verdict !== "allow").map((v) => el("span", { class: "tag " + v.verdict }, `${v.module} ${v.verdict}: ${v.detail}`)),
         ]),
       ]);
     });
-  turnosCont.replaceChildren(...(items.length ? items : [el("div", { class: "vacio" }, "ningun turno coincide")]));
+  cont.replaceChildren(...(items.length ? items : [el("div", { class: "empty" }, "no turns match")]));
 }
 
-// ---------- reproduccion ----------
-function reproducir() {
-  const total = turnosPlanos().length;
+// ---------- playback ----------
+function play() {
+  const total = flatTurns().length;
   if (!total) return;
   if (st.cursor >= total) st.cursor = 0;
   st.playing = true;
-  st.vivo = false;
+  st.live = false;
   clearInterval(st.timer);
   st.timer = setInterval(() => {
-    if (st.cursor >= turnosPlanos().length) { pausar(); render(); return; }
-    irA(st.cursor + 1, { manual: false });
-  }, Number(document.getElementById("vel").value));
+    if (st.cursor >= flatTurns().length) { pause(); render(); return; }
+    goTo(st.cursor + 1, { manual: false });
+  }, Number(document.getElementById("speed").value));
   render();
 }
-function pausar() {
+function pause() {
   st.playing = false;
   clearInterval(st.timer);
   st.timer = null;
 }
 
-document.getElementById("b-play").addEventListener("click", () => { st.playing ? pausar() : reproducir(); render(); });
-document.getElementById("b-prev").addEventListener("click", () => { pausar(); irA(st.cursor - 1); });
-document.getElementById("b-next").addEventListener("click", () => { pausar(); irA(st.cursor + 1); });
-document.getElementById("scrub").addEventListener("input", (e) => { pausar(); irA(Number(e.target.value)); });
-document.getElementById("vel").addEventListener("change", () => { if (st.playing) reproducir(); });
-document.getElementById("b-vivo").addEventListener("click", () => { pausar(); st.vivo = true; irA(turnosPlanos().length, { manual: false }); });
-document.getElementById("buscar").addEventListener("input", (e) => { st.q = e.target.value; if (st.datos) renderTurnos(enCursor()); });
+document.getElementById("b-play").addEventListener("click", () => { st.playing ? pause() : play(); render(); });
+document.getElementById("b-prev").addEventListener("click", () => { pause(); goTo(st.cursor - 1); });
+document.getElementById("b-next").addEventListener("click", () => { pause(); goTo(st.cursor + 1); });
+document.getElementById("scrub").addEventListener("input", (e) => { pause(); goTo(Number(e.target.value)); });
+document.getElementById("speed").addEventListener("change", () => { if (st.playing) play(); });
+document.getElementById("b-live").addEventListener("click", () => { pause(); st.live = true; goTo(flatTurns().length, { manual: false }); });
+document.getElementById("search").addEventListener("input", (e) => { st.query = e.target.value; if (st.data) renderTurns(atCursor()); });
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || !st.datos) return;
-  if (e.key === "ArrowRight") { pausar(); irA(st.cursor + 1); }
-  else if (e.key === "ArrowLeft") { pausar(); irA(st.cursor - 1); }
-  else if (e.key === " ") { e.preventDefault(); st.playing ? pausar() : reproducir(); render(); }
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || !st.data) return;
+  if (e.key === "ArrowRight") { pause(); goTo(st.cursor + 1); }
+  else if (e.key === "ArrowLeft") { pause(); goTo(st.cursor - 1); }
+  else if (e.key === " ") { e.preventDefault(); st.playing ? pause() : play(); render(); }
 });
 
-refrescar();
-setInterval(refrescar, 3000);
+refresh();
+setInterval(refresh, 3000);
 </script>
 </body>
 </html>
