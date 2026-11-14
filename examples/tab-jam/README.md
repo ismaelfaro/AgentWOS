@@ -129,6 +129,21 @@ Text cues reach a section by its name: `strings hold the seventh`,
 The idea comes from massed-oscillator drone instruments, where many simple
 voices, each tuned a little differently, add up to one large sound.
 
+## Live site
+
+https://agentic-tab-jam.asst.workers.dev
+
+Published with Wrangler as a Worker. Static files come from Workers static
+assets; the Needle model is served from `/model/needle3.cact` by the Worker in
+`worker/edge.js`. The Worker fetches the file from Hugging Face on the server
+and keeps a copy in the Cloudflare cache, because browsers cannot always reach
+huggingface.co from this site. The page tries its own `/model` route first and
+falls back to Hugging Face.
+
+To publish a new build, run `examples/tab-jam/deploy.sh`. It rebuilds, leaves
+out the local recordings in `web/samples`, and deploys. It needs
+`npx wrangler login` first.
+
 ## Run
 
 Requires Rust with `wasm32-wasip2` and Node.js.

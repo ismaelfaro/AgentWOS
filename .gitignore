@@ -9,3 +9,4 @@ node_modules
 /examples/*/web/dist
 /examples/*/web/vendor
 /examples/*/web/samples
+/examples/*/web/deploy

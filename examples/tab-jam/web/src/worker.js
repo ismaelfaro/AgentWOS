@@ -11,16 +11,29 @@ import { instantiate as instantiateActor } from "../gen/actor/actor.js";
 import { instantiate as instantiateStage } from "../gen/stage/stage.js";
 import { instantiate as instantiateControl } from "../gen/director-agentWOS/director-agentWOS.js";
 
-const MODEL_URL = "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact";
+// The page's own server (the edge Worker) is tried first; Hugging Face is the fallback.
+const MODEL_URLS = ["../model/needle3.cact", "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact"];
 const CACHE = "tab-jam-v1";
 const base = self.location.href;
 let kernel = null;
 let makeActor = null;
 
+async function fetchFirst(urls, cache, onProgress) {
+  let lastError = null;
+  for (const url of urls) {
+    try {
+      return await fetchCached(new URL(url, base).href, cache, onProgress);
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError;
+}
+
 async function init() {
   const progress = (label) => (loaded, total) => postMessage({ type: "progress", label, loaded, total });
   const wasmBinary = await fetchCached(new URL("../cactus.wasm", base).href, CACHE, progress("engine"));
-  const modelBytes = await fetchCached(MODEL_URL, CACHE, progress("model"));
+  const modelBytes = await fetchFirst(MODEL_URLS, CACHE, progress("model"));
   postMessage({ type: "progress", label: "starting", loaded: 1, total: 1 });
 
   const needle = await createNeedle({ createCactus, wasmBinary, modelBytes });
