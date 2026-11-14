@@ -225,15 +225,26 @@ latest turn.
 ## Design notes
 
 The [design documents](design/README.md) describe where AgentWOS is going: a
-distributed operating system for agents with everything in WASM. They are a
-proposal, not implemented yet.
+new kind of operating system, for agents, that runs on top of classic ones. It
+is AI first, cloud native and local first, and it is meant to improve itself.
+They are a proposal, not implemented yet.
 
-- [OS model](design/os-model.md): kernel, processes, system calls, and the rule
-  that only the kernel is not WASM.
-- [Protocol](design/protocol.md): identity, envelope, policy, delegation and
-  record; who may talk to whom, and on whose behalf.
+- [Architecture](design/architecture.md): the layers, and the rule that
+  everything that runs is an agent and only the kernel is not.
+- [Protocol](design/protocol.md): intents, grants, mandates, policy, guards and
+  the ledger; who may ask whom for what, and on whose behalf.
 - [Distribution](design/distribution.md): realms, pools of experts and swarms
   across kernels.
+- [Evolution](design/evolution.md): system agents that improve user agents
+  and the system itself, and the limits they cannot change.
+- [Hot swapping](design/hot-swap.md): replacing agents and workflows while they
+  run.
+- [Hive](design/hive.md): planes, shared memory and shared skills (under
+  discussion).
+- [State of the art](design/state-of-the-art.md): published work on
+  self-improving agents and what the design takes from it.
+- Each feature also has a build document (`design/build/`) and a set of
+  stories (`design/stories/`).
 - [Manifest](design/manifest.md): one resource format for every mode.
 - [Roadmap](design/roadmap.md): order of work and open questions.
 

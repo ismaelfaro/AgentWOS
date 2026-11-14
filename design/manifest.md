@@ -1,6 +1,6 @@
 # Manifest
 
-[Index](README.md) · [OS model](os-model.md) · [Protocol](protocol.md) · [Distribution](distribution.md) · [Manifest](manifest.md) · [Roadmap](roadmap.md)
+[Index](README.md) · [Architecture](architecture.md) · [Protocol](protocol.md) · [Distribution](distribution.md) · [Evolution](evolution.md) · [Hot swapping](hot-swap.md) · [Hive](hive.md) · [State of the art](state-of-the-art.md) · [Manifest](manifest.md) · [Roadmap](roadmap.md)
 
 The manifest is the init table of the system: what to load, how the parts are
 named, and what each may do. One shape for every mode: a list of resources,
@@ -11,11 +11,9 @@ Minimal kinds:
 
 | Kind | Declares |
 |---|---|
-| `Agent` | A component, its labels, and what its imports are wired to |
-| `Service` | A driver: a component given a narrow way to the outside (LLM, tool), a kernel service (starting programs), or an external host |
-| `Policy` | Selector, ingress, egress, delegation, limits |
-| `Control` | A control component |
-| `Run` | What to start: the entry agent or scenario, and run options |
+| `Agent` | A component to run, its labels, the verbs it serves and its settings |
+| `Policy` | Selector, ingress, egress, mandate, limits, attached guards |
+| `Run` | What to start: the entry agent, and run options |
 | `Realm` | A peer kernel: its key, endpoint and trust labels |
 | `Pool` | A named, changing set of agents and how calls to it are dispatched |
 
@@ -25,15 +23,16 @@ The CLI harness example, rewritten:
 {
   "apiVersion": "agentwos/v1",
   "resources": [
-    { "kind": "Service", "metadata": { "name": "llm" },
-      "spec": { "type": "llm", "module": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
-                "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free" } },
+    { "kind": "Agent", "metadata": { "name": "model", "labels": { "role": "model", "runs": "remote" } },
+      "spec": { "module": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
+                "serves": ["model.complete"],
+                "settings": { "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free" } } },
 
-    { "kind": "Service", "metadata": { "name": "openrouter.ai" }, "spec": { "type": "host" } },
-
-    { "kind": "Service", "metadata": { "name": "workspace" },
-      "spec": { "type": "workspace", "root": "runs/workspace",
-                "programs": ["python3", "node", "cargo", "rustc", "pytest"], "timeoutSeconds": 30 } },
+    { "kind": "Agent", "metadata": { "name": "workspace", "labels": { "role": "tool", "runs": "local" } },
+      "spec": { "builtin": "workspace",
+                "serves": ["files.read", "files.write", "files.list", "program.run"],
+                "settings": { "root": "runs/workspace", "timeoutSeconds": 30,
+                              "programs": ["python3", "node", "cargo", "rustc", "pytest"] } } },
 
     { "kind": "Agent", "metadata": { "name": "router", "labels": { "role": "router" } },
       "spec": { "module": "router/target/wasm32-wasip2/release/cli_router.wasm" } },
@@ -46,27 +45,27 @@ The CLI harness example, rewritten:
       "spec": { "module": "plugins/coder/target/wasm32-wasip2/release/plugin_coder.wasm",
                 "description": "Given a task, writes code in the workspace, runs it and fixes it until it works." } },
 
-    { "kind": "Policy", "metadata": { "name": "llm-egress" },
-      "spec": { "selector": { "name": "llm" },
-                "ingress": [{ "from": {}, "verbs": ["llm.complete"] }],
-                "egress":  [{ "to": { "name": "openrouter.ai" }, "verbs": ["http.request"] }] } },
+    { "kind": "Policy", "metadata": { "name": "model-egress" },
+      "spec": { "selector": { "name": "model" },
+                "ingress": [{ "from": {}, "verbs": ["model.complete"] }],
+                "egress":  [{ "to": { "host": "openrouter.ai" }, "verbs": ["http.request"] }] } },
 
     { "kind": "Policy", "metadata": { "name": "router" },
       "spec": { "selector": { "name": "router" },
                 "ingress": [{ "from": { "name": "user" }, "verbs": ["agent.run"] }],
-                "egress":  [{ "to": { "name": "llm" }, "verbs": ["llm.complete"] },
+                "egress":  [{ "to": { "labels": { "role": "model" } }, "verbs": ["model.complete"] },
                             { "to": { "labels": { "role": "worker" } }, "verbs": ["agent.run"] }],
-                "delegation": { "to": { "labels": { "role": "worker" } }, "lend": [], "maxDepth": 1 } } },
+                "mandate": { "to": { "labels": { "role": "worker" } }, "lend": [], "maxDepth": 1 } } },
 
     { "kind": "Policy", "metadata": { "name": "workers" },
       "spec": { "selector": { "labels": { "role": "worker" } },
                 "ingress": [{ "from": { "name": "router" }, "verbs": ["agent.run"] }],
-                "egress":  [{ "to": { "name": "llm" }, "verbs": ["llm.complete"] }],
+                "egress":  [{ "to": { "labels": { "role": "model" } }, "verbs": ["model.complete"] }],
                 "limits":  { "calls": 40, "seconds": 120 } } },
 
     { "kind": "Policy", "metadata": { "name": "code-writers" },
       "spec": { "selector": { "labels": { "writes": "code" } },
-                "egress": [{ "to": { "name": "workspace" }, "verbs": ["workspace.*"],
+                "egress": [{ "to": { "name": "workspace" }, "verbs": ["files.*", "program.run"],
                              "where": { "program": ["python3", "pytest"] } }] } },
 
     { "kind": "Run", "metadata": { "name": "cli" },
@@ -77,7 +76,9 @@ The CLI harness example, rewritten:
 
 What this says that the current manifest cannot:
 
-- The LLM service may reach `openrouter.ai` and nowhere else.
+- The `model` agent may reach `openrouter.ai` and nowhere else.
+- Workers reach "a model", by label. Adding a local model agent
+  (`"runs": "local"`) gives them a second one with no policy edit.
 - Only the router may call workers; workers cannot call each other.
 - `coder` may run `python3` and `pytest`, not `cargo`, although the workspace
   allows it for someone else.
@@ -87,24 +88,29 @@ What this says that the current manifest cannot:
 
 Migration is mechanical. `"grants": ["llm"]` becomes one egress rule; a manifest
 with no `Policy` resources and old-style `grants` can be translated on load.
-Scenario manifests map the same way: `scenario` becomes the `Run` entry,
-`controls` become `Control` resources.
+Scenario manifests map the same way: `scenario` becomes the `Run` entry, and
+each guard becomes an `Agent` that serves `guard.inspect`, attached to a
+policy.
+
+There are three kinds for one kernel and two more for distribution. Models,
+tools and guards are all `Agent` resources; nothing else runs. `"builtin": "workspace"` marks the one agent the kernel still provides
+itself, until it is a component ([Roadmap](roadmap.md)).
 
 ## How it stays minimal but extensible
 
 | Extension point | How | Without changing |
 |---|---|---|
-| New party types | A new `Service.spec.type` | Policy, envelope |
+| New kinds of agent | New verbs in `serves` | Kinds, policy, intent |
 | New resource kinds | A new `kind`; unknown kinds are an error, not ignored | Existing kinds |
 | New constraints | A new key in a rule's `where` | Rule structure |
 | New verbs | Follow from new WIT interfaces | Policy syntax |
-| New limits | A new key in `limits` | Delegation rules |
-| Programmable checks | Controls | The kernel |
+| New limits | A new key in `limits` | Mandate rules |
+| Programmable checks | Guards | The kernel |
 | Schema changes | `apiVersion` | Old manifests |
 
 Two rules keep extension safe:
 
 - **Fail closed.** An unknown `kind`, an unknown `where` key or an unknown limit
   is a load error. A typo in a policy must not silently become "allowed".
-- **The core never interprets `body`.** Only `where` constraints and controls
+- **The core never interprets `body`.** Only `where` constraints and guards
   look inside it, so new interfaces need no kernel change beyond naming the verb.
