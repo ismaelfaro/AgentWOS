@@ -1,4 +1,4 @@
-# AgentModules
+# AgentWOS
 
 An experimental agent operating system on WASM/WASI. Agents, tools, the LLM
 client, OS control modules and scenarios are WASM components. A Rust/Wasmtime
@@ -89,7 +89,7 @@ examples/mars-colony/build.sh
 ## Run a scenario
 
 ```bash
-./target/release/agentmodules-host --manifest examples/mars-colony/manifest.json --colony 3
+./target/release/agentwos-host --manifest examples/mars-colony/manifest.json --colony 3
 ```
 
 Manifest paths resolve from the manifest's folder, so the example can be moved
@@ -116,9 +116,9 @@ roughly two to three minutes.
 ## Single agent
 
 ```bash
-./target/release/agentmodules-host --message "model:local/google/gemma-4-e4b hello"
-./target/release/agentmodules-host --message "model:openrouter/anthropic/claude-haiku-4.5 hello"
-./target/release/agentmodules-host --message "tool:echo hello"
+./target/release/agentwos-host --message "model:local/google/gemma-4-e4b hello"
+./target/release/agentwos-host --message "model:openrouter/anthropic/claude-haiku-4.5 hello"
+./target/release/agentwos-host --message "tool:echo hello"
 ```
 
 Component paths have defaults; override them with `--agent`, `--tool`, `--llm`.

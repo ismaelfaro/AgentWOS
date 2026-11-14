@@ -5,8 +5,8 @@ wit_bindgen::generate!({
 
 use std::cell::RefCell;
 
-use agentmodules::core::types::Message;
-use exports::agentmodules::core::scenario::Guest;
+use agentwos::core::types::Message;
+use exports::agentwos::core::scenario::Guest;
 use serde_json::{json, Value};
 
 struct Component;

@@ -1,4 +1,4 @@
-package agentmodules:core@0.1.0;
+package agentwos:core@0.1.0;
 
 // Single contract for the whole system. The host and every module generate
 // their bindings from this file; each module picks one `world`.

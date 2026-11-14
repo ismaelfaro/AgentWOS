@@ -24,7 +24,7 @@ pub mod scenario_world {
     wasmtime::component::bindgen!({ world: "scenario-module", path: "../wit/world.wit" });
 }
 
-use agent_world::agentmodules::core::types as at;
+use agent_world::agentwos::core::types as at;
 
 /// WASI context of one Store. Each component has its own: isolation is per
 /// instance, and capabilities (env, network) are granted one by one.
@@ -141,23 +141,23 @@ fn trap(e: anyhow::Error) -> at::CallError {
 
 impl at::Host for HostState {}
 
-impl agent_world::agentmodules::core::tool::Host for HostState {
+impl agent_world::agentwos::core::tool::Host for HostState {
     fn describe(&mut self) -> String {
         let mut inst = self.tool.borrow_mut();
         let ToolInstance { store, bindings } = &mut *inst;
         bindings
-            .agentmodules_core_tool()
+            .agentwos_core_tool()
             .call_describe(store)
             .unwrap_or_else(|e| format!("{{\"error\":\"{e}\"}}"))
     }
 
     fn invoke(&mut self, call: at::ToolCall) -> Result<String, at::CallError> {
-        use tool_world::agentmodules::core::types as tt;
+        use tool_world::agentwos::core::types as tt;
         let mut inst = self.tool.borrow_mut();
         let ToolInstance { store, bindings } = &mut *inst;
         let call = tt::ToolCall { name: call.name, args_json: call.args_json };
         bindings
-            .agentmodules_core_tool()
+            .agentwos_core_tool()
             .call_invoke(store, &call)
             .map_err(trap)?
             .map_err(|e| match e {
@@ -168,9 +168,9 @@ impl agent_world::agentmodules::core::tool::Host for HostState {
     }
 }
 
-impl agent_world::agentmodules::core::llm::Host for HostState {
+impl agent_world::agentwos::core::llm::Host for HostState {
     fn complete(&mut self, messages: Vec<at::Message>, model: String) -> Result<String, at::CallError> {
-        use llm_world::agentmodules::core::types as lt;
+        use llm_world::agentwos::core::types as lt;
         let mut inst = self.llm.borrow_mut();
         let LlmInstance { store, bindings } = &mut *inst;
         let msgs: Vec<lt::Message> = messages
@@ -178,7 +178,7 @@ impl agent_world::agentmodules::core::llm::Host for HostState {
             .map(|m| lt::Message { role: m.role, content: m.content })
             .collect();
         bindings
-            .agentmodules_core_llm()
+            .agentwos_core_llm()
             .call_complete(store, &msgs, &model)
             .map_err(trap)?
             .map_err(|e| match e {
@@ -229,7 +229,7 @@ impl AgentInstance {
 
     pub fn ask(&mut self, messages: Vec<at::Message>) -> Result<String, String> {
         let input = messages;
-        match self.bindings.agentmodules_core_agent().call_run(&mut self.store, &input) {
+        match self.bindings.agentwos_core_agent().call_run(&mut self.store, &input) {
             Ok(Ok(s)) => Ok(s),
             Ok(Err(e)) => Err(format!("error del agente: {e:?}")),
             Err(e) => Err(format!("trap del agente: {e}")),
@@ -247,7 +247,7 @@ pub struct ScenarioInstance {
     bindings: scenario_world::ScenarioModule,
 }
 
-type Msg = scenario_world::agentmodules::core::types::Message;
+type Msg = scenario_world::agentwos::core::types::Message;
 
 impl ScenarioInstance {
     pub fn spawn(c: &Components, component: &Component) -> Result<Self> {
@@ -259,28 +259,28 @@ impl ScenarioInstance {
     }
 
     pub fn setup(&mut self, config: &str) -> Result<String> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_setup(&mut self.store, config)
     }
 
     pub fn begin_day(&mut self, day: u32, total: u32) -> Result<String> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_begin_day(&mut self.store, day, total)
     }
 
     pub fn turn_messages(&mut self, agent: u32) -> Result<Vec<(String, String)>> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         let msgs: Vec<Msg> = api.call_turn_messages(&mut self.store, agent)?;
         Ok(msgs.into_iter().map(|m| (m.role, m.content)).collect())
     }
 
     pub fn action_of(&mut self, agent: u32, reply: &str) -> Result<String> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_action_of(&mut self.store, agent, reply)
     }
 
     pub fn context(&mut self) -> Result<String> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_context(&mut self.store)
     }
 
@@ -292,17 +292,17 @@ impl ScenarioInstance {
         latency_ms: u64,
         error: Option<&str>,
     ) -> Result<()> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_record_turn(&mut self.store, agent, delivered, controls, latency_ms, error)
     }
 
     pub fn end_day(&mut self) -> Result<bool> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_end_day(&mut self.store)
     }
 
     pub fn snapshot(&mut self) -> Result<String> {
-        let api = self.bindings.agentmodules_core_scenario();
+        let api = self.bindings.agentwos_core_scenario();
         api.call_snapshot(&mut self.store)
     }
 }

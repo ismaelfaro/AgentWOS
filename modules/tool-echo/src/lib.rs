@@ -3,7 +3,7 @@ wit_bindgen::generate!({
     path: "../../wit/world.wit",
 });
 
-use exports::agentmodules::core::tool::{CallError, Guest, ToolCall};
+use exports::agentwos::core::tool::{CallError, Guest, ToolCall};
 use serde_json::json;
 
 struct Component;

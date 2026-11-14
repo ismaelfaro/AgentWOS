@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use wasmtime::component::Linker;
 use wasmtime::Store;
 
-use crate::runtime::control_world::exports::agentmodules::core::control::Verdict;
+use crate::runtime::control_world::exports::agentwos::core::control::Verdict;
 use crate::runtime::control_world::ControlModule;
 use crate::runtime::{Components, WasiState};
 
@@ -51,7 +51,7 @@ impl ControlChain {
         for ctrl in &mut self.controls {
             let result = ctrl
                 .bindings
-                .agentmodules_core_control()
+                .agentwos_core_control()
                 .call_inspect(&mut ctrl.store, author, &current, context);
             let (kind, detail) = match result {
                 Ok(Verdict::Allow) => ("allow", String::new()),

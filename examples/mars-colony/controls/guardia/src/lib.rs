@@ -3,7 +3,7 @@ wit_bindgen::generate!({
     path: "../../../../wit/world.wit",
 });
 
-use exports::agentmodules::core::control::{Guest, Verdict};
+use exports::agentwos::core::control::{Guest, Verdict};
 use serde_json::Value;
 
 struct Component;

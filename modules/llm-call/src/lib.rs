@@ -3,7 +3,7 @@ wit_bindgen::generate!({
     path: "../../wit/world.wit",
 });
 
-use exports::agentmodules::core::llm::{CallError, Guest, Message};
+use exports::agentwos::core::llm::{CallError, Guest, Message};
 use serde_json::{json, Value};
 use wstd::http::{Body, Client, Request};
 
