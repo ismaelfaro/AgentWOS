@@ -27,7 +27,7 @@ struct Lead {
 }
 
 thread_local! {
-    static LEAD: RefCell<Lead> = const { RefCell::new(Lead { mood: "calm", randomness: 30, sound: "saw" }) };
+    static LEAD: RefCell<Lead> = const { RefCell::new(Lead { mood: "calm", randomness: 30, sound: "bell" }) };
 }
 
 /// The synth voice for the lead, sent with every rendered bar.

@@ -93,7 +93,7 @@ function scheduleBar() {
   const step = 60 / data.tempo / 4;
   const start = audio.nextBarTime;
   audio.synth.setTempo(data.tempo);
-  audio.synth.setLeadSound(audio.useSample ? "sample" : data.lead_sound ?? "saw");
+  audio.synth.setLeadSound(audio.useSample ? "sample" : data.lead_sound ?? "bell");
   for (const n of data.notes) audio.synth.playNote(n, start + n.step * step, step);
   audio.now = { data, start, duration: step * 16, bar: audio.bar };
   // The bar clock: a faint spike from the drummer to everyone, on the downbeat.

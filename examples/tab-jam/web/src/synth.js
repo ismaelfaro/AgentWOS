@@ -279,7 +279,7 @@ export function createSynth(ctx) {
     },
   };
   let lastLeadFreq = null;
-  let leadSound = "saw";
+  let leadSound = "bell";
 
   // Optional sampled lead: one looped recording, re-pitched per note.
   let sample = null;
