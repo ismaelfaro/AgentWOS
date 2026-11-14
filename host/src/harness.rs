@@ -6,7 +6,7 @@
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
@@ -20,6 +20,7 @@ use crate::runtime::{
     load, message, AgentInstance, CallError, LlmClient, LlmHost, Message, ToolCall, ToolHost, Tools, TypesHost,
     WasiState,
 };
+use crate::activity::Activity;
 use crate::workspace::Workspace;
 
 const GRANTS: [&str; 3] = ["llm", "workspace", "plugins"];
@@ -123,6 +124,7 @@ struct PluginState {
     llm: Option<LlmClient>,
     workspace: Option<Workspace>,
     plugins: Option<Plugins>,
+    activity: Activity,
 }
 
 fn not_granted(what: &str) -> CallError {
@@ -146,17 +148,22 @@ impl TypesHost for PluginState {}
 impl LlmHost for PluginState {
     fn complete(&mut self, messages: Vec<Message>, model: String) -> Result<String, CallError> {
         let model = if model.is_empty() { &self.model } else { &model };
-        self.llm.as_mut().ok_or_else(|| not_granted("llm"))?.complete(&messages, model)
+        let llm = self.llm.as_mut().ok_or_else(|| not_granted("llm"))?;
+        self.activity.thinking(model, || llm.complete(&messages, model))
     }
 }
 
 impl WorkspaceHost for PluginState {
     fn read(&mut self, path: String) -> Result<String, CallError> {
-        self.workspace()?.read(&path)
+        let result = self.workspace()?.read(&path);
+        self.activity.did(&format!("read {path}"), &result, |text| format!("{} lines", text.lines().count()));
+        result
     }
 
     fn write(&mut self, path: String, contents: String) -> Result<String, CallError> {
-        self.workspace()?.write(&path, &contents)
+        let result = self.workspace()?.write(&path, &contents);
+        self.activity.did(&format!("write {path}"), &result, |_| format!("{} lines", contents.lines().count()));
+        result
     }
 
     fn list_files(&mut self, path: String) -> Result<Vec<FileEntry>, CallError> {
@@ -165,7 +172,13 @@ impl WorkspaceHost for PluginState {
     }
 
     fn exec(&mut self, program: String, args: Vec<String>) -> Result<ExecResult, CallError> {
-        let run = self.workspace()?.exec(&program, &args)?;
+        let workspace = self.workspace()?;
+        let command = format!("{program} {}", args.join(" "));
+        let run = self.activity.program(
+            &command,
+            || workspace.exec(&program, &args),
+            |run| (run.status, &run.stdout, &run.stderr),
+        )?;
         Ok(ExecResult { status: run.status, stdout: run.stdout, stderr: run.stderr })
     }
 }
@@ -193,16 +206,17 @@ struct Plugin {
 struct Plugins {
     all: Arc<OnceLock<Vec<Plugin>>>,
     project: Workspace,
+    activity: Activity,
 }
 
 impl Plugins {
-    fn spawn(engine: &Engine, manifest: Manifest, project: &Workspace, model: &str) -> Result<Self> {
+    fn spawn(engine: &Engine, manifest: Manifest, project: &Workspace, model: &str, activity: &Activity) -> Result<Self> {
         let llm = load(engine, &manifest.llm)?;
         let mut linker = Linker::<PluginState>::new(engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         PluginModule::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
 
-        let registry = Self { all: Arc::new(OnceLock::new()), project: project.clone() };
+        let registry = Self { all: Arc::new(OnceLock::new()), project: project.clone(), activity: activity.clone() };
         let mut all = Vec::new();
         for spec in manifest.plugins {
             let state = PluginState {
@@ -211,6 +225,7 @@ impl Plugins {
                 llm: if spec.granted("llm") { Some(LlmClient::spawn(engine, &llm)?) } else { None },
                 workspace: spec.granted("workspace").then(|| project.allowing(&spec.allow)),
                 plugins: spec.granted("plugins").then(|| registry.clone()),
+                activity: activity.clone(),
             };
             let mut store = Store::new(engine, state);
             let bindings = PluginModule::instantiate(&mut store, &load(engine, &spec.path)?, &linker)
@@ -251,10 +266,12 @@ impl Tools for Plugins {
         let args: Value = serde_json::from_str(&call.args_json).unwrap_or(Value::Null);
         let input = args["input"].as_str().unwrap_or("");
         let (store, bindings) = &mut *live;
-        bindings
-            .agentwos_core_agent()
-            .call_run(store, &[message("user", input)])
-            .map_err(|e| CallError::ExecutionFailed(format!("plugin '{}' crashed: {e}", call.name)))?
+        self.activity.agent(&call.name, input, || {
+            bindings
+                .agentwos_core_agent()
+                .call_run(store, &[message("user", input)])
+                .map_err(|e| CallError::ExecutionFailed(format!("plugin '{}' crashed: {e}", call.name)))?
+        })
     }
 }
 
@@ -285,6 +302,7 @@ pub fn run(
     model: Option<&str>,
     text: Option<&str>,
     list: bool,
+    trace: bool,
 ) -> Result<()> {
     let manifest = Manifest::load(path)?;
     let project = Workspace::new(project.unwrap_or_else(|| manifest.workspace.clone()), manifest.timeout);
@@ -308,11 +326,15 @@ pub fn run(
         println!("\n/<plugin> <input> calls a plugin. Anything else goes to {rest}. /help, /exit.\n");
     }
 
-    let plugins = Plugins::spawn(engine, manifest, &project, &model)?;
+    let activity = Activity::new(trace);
+    let plugins = Plugins::spawn(engine, manifest, &project, &model, &activity)?;
     let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
 
     if let Some(text) = text {
-        println!("{}", router.ask(request(default.as_deref(), &model, text)).map_err(|e| anyhow!(e))?);
+        let started = Instant::now();
+        let reply = router.ask(request(default.as_deref(), &model, text));
+        activity.summary(started);
+        println!("{}", reply.map_err(|e| anyhow!(e))?);
         return Ok(());
     }
 
@@ -326,9 +348,12 @@ pub fn run(
             break;
         }
         if !line.is_empty() {
-            match router.ask(request(default.as_deref(), &model, line)) {
-                Ok(reply) => println!("{reply}\n"),
-                Err(e) => println!("error: {e}\n"),
+            let started = Instant::now();
+            let reply = router.ask(request(default.as_deref(), &model, line));
+            activity.summary(started);
+            match reply {
+                Ok(reply) => println!("\n{reply}\n"),
+                Err(e) => println!("\nerror: {e}\n"),
             }
         }
     }

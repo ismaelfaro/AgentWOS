@@ -16,8 +16,7 @@ struct Coder;
 
 /// Steps the model may take for one task.
 const MAX_STEPS: usize = 24;
-/// How much of a step's result is shown on screen, and given to the model.
-const SHOWN_CHARS: usize = 500;
+/// How much of a step's result is given to the model.
 const RESULT_CHARS: usize = 12_000;
 /// Earlier tasks of this session the model is reminded of.
 const REMEMBERED_MESSAGES: usize = 8;
@@ -86,10 +85,6 @@ fn apply(step: &Value) -> Result<(String, String), String> {
     Err(format!("a step must be one of read, write, edit, ask, done; got {}", clip(&step.to_string(), 120)))
 }
 
-fn show(label: &str, result: &str) {
-    println!("* {label}\n    {}", clip(result.trim_end(), SHOWN_CHARS).replace('\n', "\n    "));
-}
-
 fn work(task: &str) -> Reply {
     // The `project` agent, when there is one, says what environment this is.
     let project = call("project", "").map(|report| format!("{report}\n\n")).unwrap_or_default();
@@ -120,7 +115,6 @@ fn work(task: &str) -> Reply {
             let applied = apply(step);
             let failed = applied.is_err();
             let (label, result) = applied.unwrap_or_else(|problem| ("error".to_string(), problem));
-            show(&label, &result);
             results += &format!("{label}:\n{}\n", clip(&result, RESULT_CHARS));
             if failed {
                 break; // the steps after it assumed this one worked

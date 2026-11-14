@@ -33,24 +33,30 @@ Then say what you want:
 
 ```
 > add a function is_prime(n) in primes.py with unit tests, run them, and commit
-* write primes.py
-    wrote primes.py (313 bytes)
-* write test_primes.py
-    wrote test_primes.py (1089 bytes)
-* python: test test_primes.py
-    exit 0
-    Ran 5 tests in 0.000s
-    OK
-* git: add primes.py test_primes.py
-    exit 0
-* git: commit -m "Added is_prime function and unit tests"
-    [main d62b8d1] Added is_prime function and unit tests
-Successfully added is_prime to primes.py, created unit tests, ran them, and committed both files.
+● coder add a function is_prime(n) in primes.py with unit tests, run them, and…
+  ● project
+    ✓ $ uname -srm 0.0s
+  ⠹ thinking gemma-4-e4b 3.2s            <- live, while the model works
+  · write primes.py 14 lines
+  · write test_primes.py 31 lines
+  ● python test test_primes.py
+    ✓ $ python3 -m unittest test_primes.py 0.1s
+    │ Ran 5 tests in 0.000s
+    │ OK
+  ● git commit -m "Added is_prime function and unit tests"
+    ✓ $ git commit -m Added is_prime function and unit tests 0.0s
+    │ [main d62b8d1] Added is_prime function and unit tests
+  4 agent calls · 5 model calls · 3 programs · 21.1s
 
-> make it raise TypeError for non-integers
-...
-> /review
+Added is_prime to primes.py, created unit tests, ran them, and committed both files.
 ```
+
+While it works you see what is happening: `●` an agent being asked, indented
+under whoever asked it; a spinner and a clock on what is being waited for (a
+model thinking, a program running); `·` a file read or written; `✓`, `!` or `✗`
+on how each thing ended, with the last lines a program printed. The host draws
+all of this from the calls it mediates; the agents do nothing for it. It is
+shown on a terminal; `--trace` shows it when the output is piped too.
 
 - **Plain text** goes to `coder`, which remembers the earlier tasks of the
   session. `/coder new` makes it forget them.

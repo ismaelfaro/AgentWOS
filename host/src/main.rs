@@ -1,3 +1,4 @@
+mod activity;
 mod control;
 mod harness;
 mod runner;
@@ -30,6 +31,10 @@ struct Args {
     /// With --harness: list the plugins and exit.
     #[arg(long)]
     list: bool,
+
+    /// With --harness: show what the agents do even when not on a terminal.
+    #[arg(long)]
+    trace: bool,
 
     /// With --harness: the project folder the plugins work in. Overrides the
     /// manifest's `workspace`.
@@ -108,7 +113,7 @@ fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     if let Some(path) = &args.harness {
-        return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list);
+        return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list, args.trace);
     }
     if args.list || args.project.is_some() {
         bail!("--list and --project need --harness");
