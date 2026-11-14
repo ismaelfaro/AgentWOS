@@ -175,7 +175,7 @@ The Mars dashboard is an example of an observation console for one scenario. Ser
 the repo and open it:
 
 ```bash
-python3 -m http.server 8765 --bind 127.0.0.1
+tools/serve.py
 # open http://localhost:8765/examples/mars-colony/dashboard/index.html
 ```
 

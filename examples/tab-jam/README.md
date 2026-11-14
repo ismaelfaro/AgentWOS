@@ -37,6 +37,21 @@ you: "drums play a breakbeat and make the melody dark"
   them with WebAudio.
 - **The audit log** shows every cue, pad gesture, tool call, confidence and verdict.
 
+## Source layout
+
+The stage has one Rust file per agent, all with the same functions
+(`describe`, `brief`, `pad`, `apply`, `state`, `render`):
+
+- `stage/src/lib.rs`: routes the `stage` interface to the agents.
+- `stage/src/drummer.rs`: drum pattern and the band's tempo.
+- `stage/src/bassist.rs`: bass line and the root everyone tunes to.
+- `stage/src/lead.rs`: melody mood, randomness and synth voice.
+- `stage/src/orchestra.rs`: sections added one by one.
+- `stage/src/music.rs`: notes, scales and helpers they share.
+
+The other pieces: `controls/sound-engineer` (the OS control), `web/src`
+(page, pads, synthesizer and kernel worker) and `web/test/smoke.mjs`.
+
 ## Touch pads
 
 Each agent card has an XY pad for its two main settings:
@@ -91,7 +106,7 @@ Requires Rust with `wasm32-wasip2` and Node.js.
 
 ```bash
 examples/tab-jam/build.sh
-python3 -m http.server 8765 --bind 127.0.0.1
+tools/serve.py
 # open http://localhost:8765/examples/tab-jam/web/dist/index.html
 ```
 
