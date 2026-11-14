@@ -14,13 +14,14 @@ const ROW_COLOR = { orchestra: "--orchestra", lead: "--lead", bass: "--bass", ha
 const ROW_OF = { drone: "orchestra" };
 
 const MAX_LOG_ENTRIES = 40;
+const AUDIBLE_SECTIONS = 48;
 const callText = (c) => `${c.name}(${Object.entries(c.arguments).map(([k, v]) => `${k}: ${v}`).join(", ")})`;
 const signals = createSignals($("band"));
 let agents = [];
 let briefs = [];
 let pads = [];
 let choices = [];
-let padDescriptions = [];
+let padDescriptions = new Map();
 let controls = [];
 /** Verdict counts and the latest verdict per control, by control name. */
 const tally = {};
@@ -74,8 +75,15 @@ function initAudio() {
   loadLeadSample();
 }
 
+// Playing an <audio> element inside the tap moves iOS to its playback audio
+// session, so Web Audio is heard even with the ringer switch on silent.
+const SILENT_WAV = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YQAAAAA=";
+
 function unlockAudio() {
   const ctx = audio.ctx;
+  const tag = new Audio(SILENT_WAV);
+  tag.setAttribute("playsinline", "");
+  tag.play().catch(() => {});
   ctx.resume();
   const silence = ctx.createBuffer(1, 1, ctx.sampleRate);
   const src = ctx.createBufferSource();
@@ -114,7 +122,10 @@ function scheduleBar() {
   const start = audio.nextBarTime;
   audio.synth.setTempo(data.tempo);
   audio.synth.setLeadSound(audio.useSample ? "sample" : data.lead_sound ?? "bell");
-  for (const n of data.notes) audio.synth.playNote(n, start + n.step * step, step);
+  for (const n of data.notes) {
+    if (n.inst === "drone" && n.voice >= AUDIBLE_SECTIONS) continue;
+    audio.synth.playNote(n, start + n.step * step, step);
+  }
   audio.now = { data, start, duration: step * 16, bar: audio.bar };
   // The bar clock: a faint spike from the drummer to everyone, on the downbeat.
   setTimeout(() => emit("tempo", 0.25), Math.max(0, (start - audio.ctx.currentTime) * 1000));
@@ -192,10 +203,14 @@ const colorOf = (index) => cssColor(COLORS[agents[index]?.agent] ?? "--orchestra
  * Sends a spike along every link that carries `signal`: from the agent that
  * owns the value to each agent that follows it. The links come from the stage.
  */
+// Spikes are drawn for the first agents only: a thousand paths per bar would
+// cost more than the picture is worth. The audio and the audit log cover all.
+const SPIKE_LIMIT = 32;
+
 function emit(signal, strength) {
   for (const link of state?.links ?? []) {
     if (link.signal !== signal) continue;
-    link.to.forEach((to, i) =>
+    link.to.slice(0, SPIKE_LIMIT).forEach((to, i) =>
       signals.spike(cardOf(link.from), cardOf(to), { color: colorOf(link.from), strength, delay: i * 30 }));
   }
 }
@@ -282,20 +297,20 @@ function controllerCards() {
 }
 
 // ---------- band panel ----------
-function settingOf(agent) {
+function settingOf(agent, index) {
   if (!state) return "";
   if (agent === "Drummer") return `${state.drums.replaceAll("_", " ")} at ${state.tempo} bpm`;
   if (agent === "Bassist") return `${state.bass_movement} on ${state.bass_root}`;
   if (agent === "Lead") return state.lead;
   // An agent added later: describe it from its own pad and choice settings.
-  const desc = padDescriptions.find((p) => agents[p.agent]?.agent === agent);
+  const desc = padDescriptions.get(index);
   if (!desc) return "";
   const held = desc.choice ? `${state[desc.choice.state]}, ` : "";
   return `${held}${desc.x.label} ${state[desc.x.state]}, ${desc.y.label} ${state[desc.y.state]}`;
 }
 
 function renderBand() {
-  for (const a of agents) $("setting-" + a.agent).textContent = settingOf(a.agent);
+  agents.forEach((a, i) => { $("setting-" + a.agent).textContent = settingOf(a.agent, i); });
   for (const pad of pads) pad.show(state);
   renderChoices();
 }
@@ -353,27 +368,30 @@ function optionsOf(index) {
         : p.type === "integer" ? `${name}: a number` : `${name}: ${p.description ?? "text"}`));
 }
 
+/** One agent's card. Its pad and choice box are registered for updates. */
+function agentCard(a, i) {
+  const desc = padDescriptions.get(i);
+  const pad = desc && createPad(desc, a.agent, (change) => {
+    for (const call of padCalls(desc, change)) worker.postMessage({ type: "call", id: ++cueId, agent: i, call });
+  });
+  if (pad) pads.push(pad);
+  const box = desc?.choice && el("div", { class: "choices" });
+  if (box) choices.push({ desc: desc.choice, agentIndex: i, box });
+  return el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--orchestra"})` }, [
+    el("h3", {}, "Agent " + a.agent),
+    el("div", { class: "muted" }, a.role),
+    el("div", { class: "setting", id: "setting-" + a.agent }),
+    el("div", { class: "last", id: "last-" + a.agent }, "touch the pad or send a cue"),
+    el("div", { class: "meter", title: "model confidence of the last cue" }, el("div", { id: "meter-" + a.agent })),
+    pad ? pad.element : el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
+    box || null,
+  ]);
+}
+
 function buildBand() {
   pads = [];
   choices = [];
-  const cards = agents.map((a, i) => {
-    const desc = padDescriptions.find((p) => p.agent === i);
-    const pad = desc && createPad(desc, a.agent, (change) => {
-      for (const call of padCalls(desc, change)) worker.postMessage({ type: "call", id: ++cueId, agent: i, call });
-    });
-    if (pad) pads.push(pad);
-    const box = desc?.choice && el("div", { class: "choices" });
-    if (box) choices.push({ desc: desc.choice, agentIndex: i, box });
-    return el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--orchestra"})` }, [
-      el("h3", {}, "Agent " + a.agent),
-      el("div", { class: "muted" }, a.role),
-      el("div", { class: "setting", id: "setting-" + a.agent }),
-      el("div", { class: "last", id: "last-" + a.agent }, "touch the pad or send a cue"),
-      el("div", { class: "meter", title: "model confidence of the last cue" }, el("div", { id: "meter-" + a.agent })),
-      pad ? pad.element : el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
-      box || null,
-    ]);
-  });
+  const cards = agents.map((a, i) => agentCard(a, i));
   // The last tile adds one more agent to the orchestra.
   cards.push(el("button", { class: "agent add-agent", type: "button", id: "add-agent", onclick: addAgent }, [
     el("strong", {}, "+ Add agent"),
@@ -383,6 +401,13 @@ function buildBand() {
   signals.attach();
   renderControllers();
   renderBand();
+}
+
+/** Adds one card without rebuilding the others: a thousand rebuilds would stall the page. */
+function appendAgentCard(added) {
+  const index = agents.length - 1;
+  $("add-agent").before(agentCard(agents[index], index));
+  signals.attach();
 }
 
 function addAgent() {
@@ -477,7 +502,7 @@ worker.onmessage = ({ data }) => {
     audio.modelLabel = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB`;
     audio.metaBase = `${agents.length} agents - no server`;
     showMeta();
-    padDescriptions = data.setup.pads ?? [];
+    padDescriptions = new Map((data.setup.pads ?? []).map((p) => [p.agent, p]));
     buildBand();
     setStatus("live", "live");
     worker.postMessage({ type: "render", bar: 0 });
@@ -491,8 +516,9 @@ worker.onmessage = ({ data }) => {
     if (added) {
       agents.push({ agent: added.agent, role: added.role });
       briefs.push(added.brief);
-      if (added.pad) padDescriptions.push(added.pad);
-      buildBand();
+      if (added.pad) padDescriptions.set(added.index, added.pad);
+      appendAgentCard(added);
+      $("add-agent").disabled = false;
       $("agent-" + added.agent).scrollIntoView({ block: "nearest", behavior: "smooth" });
       audio.metaBase = audio.metaBase.replace(/\d+ agents/, `${agents.length} agents`);
       showMeta();

@@ -315,6 +315,9 @@ export function createSynth(ctx) {
   }
 
   // ---- orchestra sections ---------------------------------------------------
+  // More sections than this would cost more CPU than a phone has; the rest keep
+  // their place on screen and in the log, and are simply not played.
+  const AUDIBLE_SECTIONS = 48;
   // Each timbre wires its oscillators into `out`. `spread` is the section's
   // detune in cents: its own voices sit that far apart, which is what makes
   // one section sound different from the next on the same note.
@@ -386,7 +389,7 @@ export function createSynth(ctx) {
     const dur = n.len * step;
     const end = t + dur + 0.3;
     // Sharing the level across sounding sections keeps a full orchestra from clipping.
-    const level = (n.vel / 127) * 0.2 / Math.sqrt(n.count);
+    const level = (n.vel / 127) * 0.2 / Math.sqrt(Math.min(n.count, AUDIBLE_SECTIONS));
     const pulse = n.pulse * step;
 
     const gate = ctx.createGain();

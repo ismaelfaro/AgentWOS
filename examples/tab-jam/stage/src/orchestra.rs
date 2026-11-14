@@ -15,7 +15,7 @@ const SECTIONS: [&str; 5] = ["Strings", "Brass", "Flute", "Choir", "Organ"];
 const INTERVALS: [(&str, u8); 6] = [("root", 0), ("third", 3), ("fifth", 7), ("seventh", 10), ("octave", 12), ("silent", 0)];
 /// Pulse lengths as (name, sixteenth notes per pulse).
 const PULSES: [(&str, u32); 5] = [("bar", 16), ("half", 8), ("quarter", 4), ("eighth", 2), ("sixteenth", 1)];
-const MAX_SECTIONS: usize = 16;
+const MAX_SECTIONS: usize = 48;
 
 struct Section {
     /// Fixed when the agent joins. Also the synth timbre.

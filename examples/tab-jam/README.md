@@ -118,8 +118,8 @@ a new `actor.wasm` instance, created while the band plays.
   changing the bass moves the whole orchestra, and each pulse is a division of
   the bar, so they all breathe on the band's clock.
 - **The OS decides who gets in.** The request to add an agent goes through the
-  director like any tool call. It allows eight sections and blocks the
-  ninth, and it clamps a section's detune to 35 cents.
+  director like any tool call. It allows 48 sections and blocks the
+  forty-ninth, and it clamps a section's detune to 35 cents.
 - **Level is shared.** Sounding sections split one level budget, so a full
   orchestra is not louder than a single section.
 

@@ -44,8 +44,11 @@ async function init() {
   const control = (await instantiateControl(wasm("director-agentWOS"), wasiImports(shim))).control;
   const agentCount = JSON.parse(stage.setup("{}")).agents.length;
   // One actor instance per agent: separate memory, same tool-llm service.
+  // An actor keeps no state between calls, so every agent can share one instance.
+  // A thousand instances would cost a thousand WASM memories.
+  let shared = null;
   makeActor = async () =>
-    (await instantiateActor(wasm("actor"), wasiImports(shim, { "agentwos:core/tool-llm": needle }))).actor;
+    shared ??= (await instantiateActor(wasm("actor"), wasiImports(shim, { "agentwos:core/tool-llm": needle }))).actor;
   const actors = [];
   for (let i = 0; i < agentCount; i++) actors.push(await makeActor());
 

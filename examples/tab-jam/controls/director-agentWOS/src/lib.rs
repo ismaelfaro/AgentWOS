@@ -11,7 +11,7 @@ struct Component;
 const MIN_BPM: u64 = 60;
 const MAX_BPM: u64 = 160;
 const FRANTIC_LIMIT_BPM: u64 = 150;
-const MAX_DRONES: u64 = 8;
+const MAX_DRONES: u64 = 48;
 const MAX_DETUNE_CENTS: u64 = 35;
 
 /// Note names as semitones above C, and the notes of C natural minor.

@@ -32,8 +32,9 @@ const shim = { cli, clocks, io, random };
 const load = (dir) => async (path) => WebAssembly.compile(await readFile(new URL(`../gen/${dir}/${path}`, here)));
 const stage = (await instantiateStage(load("stage"), wasiImports(shim))).stage;
 const control = (await instantiateControl(load("director-agentWOS"), wasiImports(shim))).control;
+let sharedActor = null;
 const makeActor = async () =>
-  (await instantiateActor(load("actor"), wasiImports(shim, { "agentwos:core/tool-llm@0.1.0": needle }))).actor;
+  sharedActor ??= (await instantiateActor(load("actor"), wasiImports(shim, { "agentwos:core/tool-llm@0.1.0": needle }))).actor;
 const actors = [];
 for (let i = 0; i < 3; i++) actors.push(await makeActor());
 const kernel = createKernel({ stage, actors, controls: [{ name: "director-agentWOS", control }] });
@@ -157,8 +158,14 @@ p = kernel.call(4, { name: "set_drone_interval", arguments: { interval: "silent"
 check("a silent section drops out and the rest share the level", dronesIn(0).length === 4 && dronesIn(0).every((n) => n.count === 4));
 for (let i = 0; i < 3; i++) await kernel.spawn("drone", makeActor);
 check("second round is numbered", kernel.agents[8].agent === "Strings 2" && kernel.agents.length === 11);
+while (kernel.agents.length < 3 + 48) await kernel.spawn("drone", makeActor);
+check("48 sections join one by one", kernel.agents.length === 51 && kernel.state().drone_count === 48);
 const full = await kernel.spawn("drone", makeActor);
-check("director blocks a ninth section", full.added === null && full.turns[0].attempts[0].calls[0].verdicts[0].verdict === "block" && kernel.agents.length === 11);
+check("director blocks the 49th section", full.added === null && full.turns[0].attempts[0].calls[0].verdicts[0].verdict === "block" && kernel.agents.length === 51);
+const many = dronesIn(0);
+const st = kernel.state();
+const silent = Object.keys(st).filter((k) => /^drone\d+_interval$/.test(k) && st[k] === "silent").length;
+check("a bar renders every sounding section", many.length === 48 - silent, `${many.length} notes, ${silent} silent`);
 r = run("strings hold the seventh");
 check("text cue reaches an added agent", r.state.drone1_interval === "seventh", `interval=${r.state.drone1_interval}`);
 r = run("brass pulse quarter");
