@@ -1,6 +1,8 @@
 // Tab Jam UI: sends cues to the kernel worker, plays what the stage renders
 // with WebAudio, and shows what every agent and control did.
 
+import { createSynth } from "./synth.js";
+
 const $ = (id) => document.getElementById(id);
 const worker = new Worker(new URL("worker.js?v=" + __BUILD_ID__, import.meta.url), { type: "module" });
 
@@ -32,75 +34,12 @@ function setStatus(text, kind = "") {
 }
 
 // ---------- audio ----------
-const audio = { ctx: null, master: null, noise: null, playing: false, nextBarTime: 0, bar: 0, bars: new Map(), last: null, now: null };
+const audio = { ctx: null, synth: null, playing: false, nextBarTime: 0, bar: 0, bars: new Map(), last: null, now: null };
 
 function initAudio() {
-  const ctx = new AudioContext();
-  const compressor = ctx.createDynamicsCompressor();
-  const master = ctx.createGain();
-  master.gain.value = 0.7;
-  master.connect(compressor).connect(ctx.destination);
-  const noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-  const data = noise.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  Object.assign(audio, { ctx, master, noise });
-}
-
-const hz = (midi) => 440 * 2 ** ((midi - 69) / 12);
-
-function envelope(t, peak, attack, decay) {
-  const g = audio.ctx.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(peak, t + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
-  g.connect(audio.master);
-  return g;
-}
-
-function tone(type, freq, t, peak, attack, decay, filterHz) {
-  const osc = audio.ctx.createOscillator();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, t);
-  let node = osc;
-  if (filterHz) {
-    const f = audio.ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = filterHz;
-    node = osc.connect(f);
-  }
-  node.connect(envelope(t, peak, attack, decay));
-  osc.start(t);
-  osc.stop(t + attack + decay + 0.05);
-  return osc;
-}
-
-function burst(t, peak, decay, highpassHz) {
-  const src = audio.ctx.createBufferSource();
-  src.buffer = audio.noise;
-  const f = audio.ctx.createBiquadFilter();
-  f.type = "highpass";
-  f.frequency.value = highpassHz;
-  src.connect(f).connect(envelope(t, peak, 0.002, decay));
-  src.start(t);
-  src.stop(t + decay + 0.05);
-}
-
-function playNote(n, t, step) {
-  const v = n.vel / 127;
-  const len = n.len * step;
-  if (n.inst === "kick") {
-    const osc = tone("sine", 150, t, v, 0.002, 0.22);
-    osc.frequency.exponentialRampToValueAtTime(45, t + 0.12);
-  } else if (n.inst === "snare") {
-    burst(t, v * 0.6, 0.14, 1500);
-    tone("triangle", 190, t, v * 0.3, 0.002, 0.08);
-  } else if (n.inst === "hat") {
-    burst(t, v * 0.25, 0.04, 7000);
-  } else if (n.inst === "bass") {
-    tone("sawtooth", hz(n.midi), t, v * 0.5, 0.01, Math.max(0.08, len * 0.9), 500);
-  } else if (n.inst === "lead") {
-    tone("square", hz(n.midi), t, v * 0.16, 0.01, Math.max(0.06, len * 0.95), 2400);
-  }
+  audio.ctx = new AudioContext();
+  audio.synth = createSynth(audio.ctx);
+  audio.synth.setVolume(Number($("volume").value));
 }
 
 function scheduleBar() {
@@ -109,7 +48,8 @@ function scheduleBar() {
   if (!data) return;
   const step = 60 / data.tempo / 4;
   const start = audio.nextBarTime;
-  for (const n of data.notes) playNote(n, start + n.step * step, step);
+  audio.synth.setTempo(data.tempo);
+  for (const n of data.notes) audio.synth.playNote(n, start + n.step * step, step);
   audio.now = { data, start, duration: step * 16, bar: audio.bar };
   audio.last = data;
   audio.bars.delete(audio.bar);
@@ -318,6 +258,7 @@ $("cue-form").addEventListener("submit", (e) => {
   sendCue($("cue").value);
   $("cue").value = "";
 });
+$("volume").addEventListener("input", (e) => audio.synth?.setVolume(Number(e.target.value)));
 $("toggle").addEventListener("click", () => {
   if (audio.playing) {
     audio.playing = false;

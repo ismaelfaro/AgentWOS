@@ -39,7 +39,7 @@ transpile "$here/controls/sound-engineer/target/wasm32-wasip2/release/sound_engi
 
 build_id="$(date +%s)"
 # Generated code and cactus.js keep Node-only branches that never run in a browser.
-npx esbuild src/worker.js src/main.js --bundle --format=esm --target=es2022 --outdir=dist \
+npx esbuild src/worker.js src/main.js src/synth.js --bundle --format=esm --target=es2022 --outdir=dist \
   --external:node:* --external:fs --external:path --external:crypto --external:url --external:module \
   --define:__BUILD_ID__="\"$build_id\"" --log-level=warning
 cp vendor/cactus.wasm dist/
