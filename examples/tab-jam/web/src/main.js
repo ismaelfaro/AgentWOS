@@ -28,6 +28,10 @@ function el(tag, attrs = {}, children = []) {
   return n;
 }
 
+function showMeta() {
+  if (audio.metaBase) $("meta").textContent = audio.metaBase + (audio.leadSample ? " - sampled lead" : "");
+}
+
 function setStatus(text, kind = "") {
   $("status").textContent = text;
   $("status").className = "pill " + kind;
@@ -40,6 +44,21 @@ function initAudio() {
   audio.ctx = new AudioContext();
   audio.synth = createSynth(audio.ctx);
   audio.synth.setVolume(Number($("volume").value));
+  loadLeadSample();
+}
+
+// A local recording can replace the synthesized lead. The samples folder is not
+// part of the repository, so without it the synth voice plays.
+async function loadLeadSample() {
+  try {
+    const meta = await (await fetch("samples/lead.json", { cache: "no-store" })).json();
+    const data = await (await fetch("samples/" + meta.file, { cache: "no-store" })).arrayBuffer();
+    audio.synth.setLeadSample(await audio.ctx.decodeAudioData(data), meta.midi);
+    audio.leadSample = meta.file;
+    showMeta();
+  } catch {
+    audio.leadSample = null;
+  }
 }
 
 function scheduleBar() {
@@ -216,7 +235,8 @@ worker.onmessage = ({ data }) => {
       el("button", { class: "chip", type: "button", onclick: () => sendCue(s) }, s)));
     $("start-card").hidden = true;
     for (const id of ["conductor", "band", "roll-card", "log-card"]) $(id).hidden = false;
-    $("meta").textContent = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB - ${agents.length} agents - ${data.setup.key} - no server`;
+    audio.metaBase = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB - ${agents.length} agents - ${data.setup.key} - no server`;
+    showMeta();
     buildBand();
     setStatus("live", "live");
     worker.postMessage({ type: "render", bar: 0 });

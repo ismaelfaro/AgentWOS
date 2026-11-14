@@ -46,4 +46,6 @@ cp vendor/cactus.wasm dist/
 # The build id in every asset URL keeps browsers from mixing files of two builds.
 sed "s/main.js/main.js?v=$build_id/; s/style.css/style.css?v=$build_id/" src/index.html > dist/index.html
 cp src/style.css dist/
+# Optional local recordings for the sampled lead (git-ignored; see README).
+if [ -d samples ]; then cp -R samples dist/samples; fi
 echo "built: $web/dist"

@@ -169,45 +169,76 @@ export function createSynth(ctx) {
     noiseBurst(t, t + 0.04, "bandpass", 700, 1.2).connect(voice(t, v * 0.1, 0.001, 0.025, { out: bassBus }));
   }
 
-  // Synth lead: three detuned saws over a square sub, a resonant filter that
-  // opens on the attack, a glide from the previous note and vibrato on held notes.
-  let lastLeadFreq = null;
-  function lead(t, v, midi, len) {
-    const dur = Math.max(0.1, len * 0.95);
-    const end = t + dur + 0.3;
+  // Synth lead matched to a reference recording: a single saw with a slightly
+  // reinforced fundamental, a fixed gentle low-pass, immediate attack and a
+  // level that holds for the whole note. No detune, vibrato, sweep or glide.
+  function synthLead(t, v, midi, len) {
+    const hold = Math.max(0.08, len * 0.98);
+    const release = 0.09;
+    const end = t + hold + release + 0.02;
     const freq = hz(midi);
-    const from = lastLeadFreq ?? freq;
-    lastLeadFreq = freq;
 
-    const filter = ctx.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.Q.value = 7;
-    filter.frequency.setValueAtTime(700, t);
-    filter.frequency.exponentialRampToValueAtTime(1800 + 3200 * v, t + 0.03);
-    filter.frequency.exponentialRampToValueAtTime(900, t + Math.max(dur, 0.12));
+    const tone = ctx.createBiquadFilter();
+    tone.type = "lowpass";
+    tone.frequency.value = 3400;
+    tone.Q.value = 0.6;
+    osc("sawtooth", freq, t, end).connect(tone);
+    const fundamental = ctx.createGain();
+    fundamental.gain.value = 0.17;
+    osc("sine", freq, t, end).connect(fundamental).connect(tone);
 
-    const vibrato = osc("sine", 5.8, t, end);
-    const depth = ctx.createGain();
-    depth.gain.setValueAtTime(0, t);
-    depth.gain.setValueAtTime(0, t + Math.min(dur, 0.18));
-    depth.gain.linearRampToValueAtTime(dur > 0.3 ? 9 : 0, t + Math.min(dur, 0.45));
-    vibrato.connect(depth);
+    const gain = ctx.createGain();
+    const peak = v * 0.2;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.004);
+    gain.gain.setValueAtTime(peak, t + hold);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + hold + release);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = -0.15;
+    tone.connect(gain).connect(panner).connect(master);
+    const send = ctx.createGain();
+    send.gain.value = 0.18;
+    panner.connect(send).connect(reverb);
+  }
 
-    const mix = ctx.createGain();
-    mix.gain.value = 0.3;
-    mix.connect(filter);
-    for (const [type, detune, level] of [["sawtooth", -12, 1], ["sawtooth", 0, 1], ["sawtooth", 12, 1], ["square", -1200, 0.5]]) {
-      const o = osc(type, from, t, end, detune);
-      o.frequency.exponentialRampToValueAtTime(freq, t + 0.035);
-      depth.connect(o.detune);
-      const g = ctx.createGain();
-      g.gain.value = level;
-      o.connect(g).connect(mix);
-    }
-    filter.connect(voice(t, v * 0.52, 0.006, dur + 0.12, { pan: -0.15, reverbSend: 0.3, delaySend: 0.3 }));
+  // Optional sampled lead: one looped recording, re-pitched per note.
+  let sample = null;
+  function sampledLead(t, v, midi, len) {
+    const hold = Math.max(0.1, len * 0.98);
+    const release = 0.12;
+    const src = ctx.createBufferSource();
+    src.buffer = sample.buffer;
+    src.loop = true;
+    src.playbackRate.value = 2 ** ((midi - sample.midi) / 12);
+    const gain = ctx.createGain();
+    const peak = v * 0.55;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.012);
+    gain.gain.setValueAtTime(peak, t + hold);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + hold + release);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = -0.15;
+    src.connect(gain).connect(panner).connect(master);
+    const send = ctx.createGain();
+    send.gain.value = 0.2;
+    panner.connect(send).connect(reverb);
+    // start at a different point of the loop each time so repeats do not sound stamped
+    src.start(t, Math.random() * sample.buffer.duration);
+    src.stop(t + hold + release + 0.02);
+  }
+
+  function lead(t, v, midi, len) {
+    (sample ? sampledLead : synthLead)(t, v, midi, len);
   }
 
   return {
+    /**
+     * Uses a recording as the lead instead of the synthesized voice.
+     * `midi` is the pitch the recording sounds at.
+     */
+    setLeadSample(buffer, midi) {
+      sample = buffer ? { buffer, midi } : null;
+    },
     /** `step` is the length of a sixteenth note in seconds. */
     playNote(n, t, step) {
       const v = n.vel / 127;

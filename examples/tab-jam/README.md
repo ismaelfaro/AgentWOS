@@ -57,6 +57,19 @@ Test the kernel with the real model in Node:
 (cd examples/tab-jam/web && node test/smoke.mjs)
 ```
 
+## Sampled lead (optional)
+
+The lead can play a recording instead of the synthesized voice. Put two files in
+`web/samples/` and rebuild:
+
+- `lead.wav`: a short mono recording that loops cleanly.
+- `lead.json`: `{ "file": "lead.wav", "midi": 60 }`, where `midi` is the pitch the
+  recording sounds at.
+
+Each note re-pitches the recording. `web/samples/` is git-ignored, so recordings
+stay on your machine; without them the synthesized lead plays. The header shows
+"sampled lead" when a sample is in use.
+
 ## Cues that work
 
 Name the instrument and say what you want:
