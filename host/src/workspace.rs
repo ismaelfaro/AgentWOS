@@ -35,6 +35,23 @@ pub struct Workspace {
     timeout: Duration,
 }
 
+/// How many folders down a `*.ext` marker is looked for, and where it is not.
+const MARKER_DEPTH: usize = 3;
+const NOT_SOURCE: [&str; 6] = [".git", "target", "node_modules", "__pycache__", ".venv", "dist"];
+
+fn has_suffix(folder: &Path, suffix: &str, depth: usize) -> bool {
+    let Ok(entries) = std::fs::read_dir(folder) else { return false };
+    let entries: Vec<_> = entries.flatten().collect();
+    let name = |e: &std::fs::DirEntry| e.file_name().to_string_lossy().into_owned();
+    entries.iter().any(|e| name(e).ends_with(suffix))
+        || depth > 0
+            && entries.iter().any(|e| {
+                e.file_type().is_ok_and(|t| t.is_dir())
+                    && !NOT_SOURCE.contains(&name(e).as_str())
+                    && has_suffix(&e.path(), suffix, depth - 1)
+            })
+}
+
 fn invalid(message: impl Into<String>) -> CallError {
     CallError::InvalidInput(message.into())
 }
@@ -60,14 +77,13 @@ impl Workspace {
         &self.root
     }
 
-    /// Whether the top of the folder has this marker: a name (`Cargo.toml`)
-    /// or a suffix (`*.py`). This is how a project is recognised.
+    /// Whether the project has this marker: a name at its top (`Cargo.toml`)
+    /// or a suffix (`*.py`) on any file a few folders deep. This is how a
+    /// project is recognised.
     pub fn has(&self, marker: &str) -> bool {
         match marker.strip_prefix('*') {
             None => self.root.join(marker).exists(),
-            Some(suffix) => std::fs::read_dir(&self.root)
-                .map(|entries| entries.flatten().any(|e| e.file_name().to_string_lossy().ends_with(suffix)))
-                .unwrap_or(false),
+            Some(suffix) => has_suffix(&self.root, suffix, MARKER_DEPTH),
         }
     }
 

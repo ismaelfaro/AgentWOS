@@ -157,10 +157,20 @@ world agent-module {
 /// `llm` and `workspace`, but each one only works when the harness manifest
 /// grants it to that plugin; otherwise the call returns an error. A plugin
 /// never gets `wasi:http`, the filesystem or processes directly.
+/// Asking several agents at the same time.
+interface team {
+    use types.{tool-call, call-error};
+
+    /// Each call goes to its own instance of the named agent. The answers
+    /// come back in the order of the calls.
+    invoke-all: func(calls: list<tool-call>) -> list<result<string, call-error>>;
+}
+
 world plugin-module {
     import llm;
     import workspace;
     import tool;
+    import team;
     export agent;
 }
 

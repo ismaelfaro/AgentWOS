@@ -3,12 +3,14 @@
 //! agents: which agent was asked, when a model is thinking, which files were
 //! touched, which program is running and how it ended.
 //!
-//! Lines go to stderr, indented by how deep the chain of agents is. On a
-//! terminal, whatever is being waited for has a spinner and a running clock.
+//! Lines go to stderr, indented by how deep the chain of agents is. Agents
+//! working at the same time each get a branch number in front of their lines.
+//! On a terminal, a last line with a spinner and a clock says what is being
+//! waited for right now.
 
 use std::io::{IsTerminal, Write};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,21 +25,37 @@ const DIM: &str = "2";
 const RED: &str = "31";
 const GREEN: &str = "32";
 const YELLOW: &str = "33";
+const MAGENTA: &str = "35";
 const CYAN: &str = "36";
 const BOLD: &str = "1";
+
+/// One thing being waited for.
+struct Waiting {
+    id: usize,
+    what: String,
+    since: Instant,
+}
 
 struct Shared {
     terminal: bool,
     color: bool,
-    depth: AtomicUsize,
+    /// Everything in flight. Also the lock for writing to the screen, so a
+    /// line and the spinner never overlap.
+    waiting: Mutex<Vec<Waiting>>,
+    next_id: AtomicUsize,
     agents: AtomicUsize,
     thoughts: AtomicUsize,
     programs: AtomicUsize,
 }
 
-/// Cheap to clone: every plugin's state holds one. Silent when created off.
+/// A place in the tree of calls: how deep, and on which parallel branch.
+/// Cheap to clone. Silent when created off.
 #[derive(Clone)]
-pub struct Activity(Option<Arc<Shared>>);
+pub struct Activity {
+    shared: Option<Arc<Shared>>,
+    depth: usize,
+    branch: String,
+}
 
 fn seconds(since: Instant) -> String {
     format!("{:.1}s", since.elapsed().as_secs_f32())
@@ -52,50 +70,102 @@ fn one_line(text: &str, max: usize) -> String {
     }
 }
 
+fn paint(shared: &Shared, code: &str, text: &str) -> String {
+    if shared.color {
+        format!("\x1b[{code}m{text}\x1b[0m")
+    } else {
+        text.to_string()
+    }
+}
+
+/// The spinner line: the oldest thing in flight, and how many more there are.
+fn draw_status(shared: &Shared, waiting: &[Waiting], frame: &str) {
+    let Some(first) = waiting.first() else { return };
+    let more = match waiting.len() - 1 {
+        0 => String::new(),
+        n => paint(shared, MAGENTA, &format!("  +{n} more at the same time")),
+    };
+    eprint!("\r\x1b[2K{} {} {}{more}", paint(shared, CYAN, frame), first.what, paint(shared, DIM, &seconds(first.since)));
+    let _ = std::io::stderr().flush();
+}
+
 impl Activity {
     /// Shown on a terminal, or anywhere when `always` is set.
     pub fn new(always: bool) -> Self {
         let terminal = std::io::stderr().is_terminal();
         if !terminal && !always {
-            return Self(None);
+            return Self { shared: None, depth: 0, branch: String::new() };
         }
         let zero = || AtomicUsize::new(0);
-        Self(Some(Arc::new(Shared {
+        let shared = Arc::new(Shared {
             terminal,
             color: terminal && std::env::var_os("NO_COLOR").is_none(),
-            depth: zero(),
+            waiting: Mutex::new(Vec::new()),
+            next_id: zero(),
             agents: zero(),
             thoughts: zero(),
             programs: zero(),
-        })))
+        });
+        if terminal {
+            let shared = shared.clone();
+            thread::spawn(move || {
+                for frame in FRAMES.iter().cycle() {
+                    thread::sleep(Duration::from_millis(80));
+                    draw_status(&shared, &shared.waiting.lock().unwrap(), frame);
+                }
+            });
+        }
+        Self { shared: Some(shared), depth: 0, branch: String::new() }
+    }
+
+    /// One level further in: where the things an agent does are shown.
+    pub fn deeper(&self) -> Self {
+        Self { depth: self.depth + 1, ..self.clone() }
+    }
+
+    /// One of several agents working at the same time.
+    pub fn branch(&self, number: usize) -> Self {
+        let branch = if self.branch.is_empty() { number.to_string() } else { format!("{}.{number}", self.branch) };
+        Self { branch, ..self.clone() }
     }
 
     fn paint(&self, code: &str, text: &str) -> String {
-        match &self.0 {
-            Some(s) if s.color => format!("\x1b[{code}m{text}\x1b[0m"),
-            _ => text.to_string(),
-        }
+        self.shared.as_ref().map_or(text.to_string(), |s| paint(s, code, text))
+    }
+
+    fn prefix(&self) -> String {
+        let branch = if self.branch.is_empty() { String::new() } else { self.paint(MAGENTA, &format!("[{}] ", self.branch)) };
+        format!("{}{branch}", "  ".repeat(self.depth))
     }
 
     fn line(&self, text: &str) {
-        if let Some(s) = &self.0 {
-            eprintln!("{}{text}", "  ".repeat(s.depth.load(Ordering::Relaxed)));
+        let Some(s) = &self.shared else { return };
+        let waiting = s.waiting.lock().unwrap();
+        if s.terminal {
+            eprint!("\r\x1b[2K");
+        }
+        eprintln!("{}{text}", self.prefix());
+        if s.terminal {
+            draw_status(s, &waiting, FRAMES[0]);
         }
     }
 
-    /// An agent is asked something. Everything it does until it answers is
-    /// shown one level deeper.
+    /// An agent is asked something. What it does until it answers is shown
+    /// by `self.deeper()`.
     pub fn agent<T>(&self, name: &str, input: &str, work: impl FnOnce() -> Result<T, CallError>) -> Result<T, CallError> {
-        let Some(s) = &self.0 else { return work() };
+        let Some(s) = &self.shared else { return work() };
         s.agents.fetch_add(1, Ordering::Relaxed);
         self.line(&format!("{} {} {}", self.paint(CYAN, "●"), self.paint(BOLD, name), self.paint(DIM, &one_line(input, 70))));
-        s.depth.fetch_add(1, Ordering::Relaxed);
         let result = work();
-        s.depth.fetch_sub(1, Ordering::Relaxed);
         if let Err(e) = &result {
             self.line(&format!("{} {name}: {}", self.paint(RED, "✗"), one_line(error_text(e), LINE_CHARS)));
         }
         result
+    }
+
+    /// Several agents are asked at the same time.
+    pub fn together(&self, count: usize) {
+        self.line(&self.paint(MAGENTA, &format!("⇉ {count} agents at the same time")));
     }
 
     /// Something that happens at once: a file read or written.
@@ -106,32 +176,22 @@ impl Activity {
         }
     }
 
-    /// Something worth waiting for. Shows a spinner and a clock while `work`
-    /// runs, then one line saying how it went.
-    fn wait<T>(&self, what: &str, work: impl FnOnce() -> Result<T, CallError>, outcome: impl Fn(&T) -> (bool, String)) -> Result<T, CallError> {
-        let Some(s) = &self.0 else { return work() };
-        let indent = "  ".repeat(s.depth.load(Ordering::Relaxed));
-        let started = Instant::now();
-        let finished = AtomicBool::new(false);
-        let result = thread::scope(|scope| {
-            if s.terminal {
-                scope.spawn(|| {
-                    for frame in FRAMES.iter().cycle() {
-                        if finished.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        eprint!("\r\x1b[2K{indent}{} {what} {}", self.paint(CYAN, frame), self.paint(DIM, &seconds(started)));
-                        let _ = std::io::stderr().flush();
-                        thread::sleep(Duration::from_millis(80));
-                    }
-                    eprint!("\r\x1b[2K");
-                });
-            }
-            let result = work();
-            finished.store(true, Ordering::Relaxed);
-            result
-        });
-        let took = self.paint(DIM, &seconds(started));
+    /// Something worth waiting for. It is on the spinner line while `work`
+    /// runs, then gets one line saying how it went.
+    fn wait<T>(
+        &self,
+        what: &str,
+        work: impl FnOnce() -> Result<T, CallError>,
+        outcome: impl Fn(&T) -> (bool, String),
+    ) -> Result<T, CallError> {
+        let Some(s) = &self.shared else { return work() };
+        let id = s.next_id.fetch_add(1, Ordering::Relaxed);
+        let since = Instant::now();
+        s.waiting.lock().unwrap().push(Waiting { id, what: format!("{}{what}", self.prefix()), since });
+        let result = work();
+        s.waiting.lock().unwrap().retain(|w| w.id != id);
+
+        let took = self.paint(DIM, &seconds(since));
         match &result {
             Ok(value) => {
                 let (good, detail) = outcome(value);
@@ -146,7 +206,7 @@ impl Activity {
 
     /// A model is asked for a completion.
     pub fn thinking(&self, model: &str, work: impl FnOnce() -> Result<String, CallError>) -> Result<String, CallError> {
-        if let Some(s) = &self.0 {
+        if let Some(s) = &self.shared {
             s.thoughts.fetch_add(1, Ordering::Relaxed);
         }
         let name = model.rsplit('/').next().unwrap_or(model);
@@ -160,13 +220,13 @@ impl Activity {
         work: impl FnOnce() -> Result<T, CallError>,
         parts: impl Fn(&T) -> (i32, &str, &str),
     ) -> Result<T, CallError> {
-        if let Some(s) = &self.0 {
+        if let Some(s) = &self.shared {
             s.programs.fetch_add(1, Ordering::Relaxed);
         }
         let what = format!("$ {}", one_line(command, 80));
-        let result = self.wait(&what, work, |run| {
-            let status = parts(run).0;
-            (status == 0, if status == 0 { String::new() } else { self.paint(YELLOW, &format!("exit {status}")) })
+        let result = self.wait(&what, work, |run| match parts(run).0 {
+            0 => (true, String::new()),
+            status => (false, self.paint(YELLOW, &format!("exit {status}"))),
         });
         if let Ok(run) = &result {
             let (_, stdout, stderr) = parts(run);
@@ -185,7 +245,7 @@ impl Activity {
 
     /// One line closing a request: what it took. Starts the count again.
     pub fn summary(&self, started: Instant) {
-        let Some(s) = &self.0 else { return };
+        let Some(s) = &self.shared else { return };
         let count = |n: &AtomicUsize, one: &str, many: &str| match n.swap(0, Ordering::Relaxed) {
             0 => None,
             1 => Some(format!("1 {one}")),
@@ -200,6 +260,6 @@ impl Activity {
         .into_iter()
         .flatten()
         .collect();
-        eprintln!("{}", self.paint(DIM, &format!("  {}", parts.join(" · "))));
+        self.line(&self.paint(DIM, &format!("  {}", parts.join(" · "))));
     }
 }

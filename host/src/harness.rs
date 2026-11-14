@@ -5,16 +5,17 @@
 
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
-use wasmtime::component::{HasSelf, Linker};
+use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{WasiCtxView, WasiView};
 
 use crate::runtime::plugin_world::agentwos::core::workspace::{ExecResult, FileEntry, Host as WorkspaceHost};
+use crate::runtime::plugin_world::agentwos::core::team::Host as TeamHost;
 use crate::runtime::plugin_world::PluginModule;
 use crate::runtime::{
     load, message, AgentInstance, CallError, LlmClient, LlmHost, Message, ToolCall, ToolHost, Tools, TypesHost,
@@ -25,6 +26,8 @@ use crate::workspace::Workspace;
 
 const GRANTS: [&str; 3] = ["llm", "workspace", "plugins"];
 const DEFAULT_TIMEOUT_SECONDS: u64 = 60;
+/// How many agents deep a chain of calls may go.
+const MAX_DEPTH: usize = 4;
 
 /// One entry of `plugins` in the manifest.
 struct PluginSpec {
@@ -123,6 +126,7 @@ struct PluginState {
     model: String,
     llm: Option<LlmClient>,
     workspace: Option<Workspace>,
+    /// The other plugins, at this instance's place in the chain of calls.
     plugins: Option<Plugins>,
     activity: Activity,
 }
@@ -134,6 +138,10 @@ fn not_granted(what: &str) -> CallError {
 impl PluginState {
     fn workspace(&self) -> Result<&Workspace, CallError> {
         self.workspace.as_ref().ok_or_else(|| not_granted("workspace"))
+    }
+
+    fn plugins(&mut self) -> Result<&mut Plugins, CallError> {
+        self.plugins.as_mut().ok_or_else(|| not_granted("plugins"))
     }
 }
 
@@ -190,54 +198,112 @@ impl ToolHost for PluginState {
     }
 
     fn invoke(&mut self, call: ToolCall) -> Result<String, CallError> {
-        self.plugins.as_mut().ok_or_else(|| not_granted("plugins"))?.invoke(call)
+        self.plugins()?.invoke(call)
     }
 }
 
-struct Plugin {
-    spec: PluginSpec,
-    /// Locked while the plugin runs, so a chain of calls cannot re-enter it.
-    live: Mutex<(Store<PluginState>, PluginModule)>,
+impl TeamHost for PluginState {
+    fn invoke_all(&mut self, calls: Vec<ToolCall>) -> Vec<Result<String, CallError>> {
+        match self.plugins() {
+            Ok(plugins) => plugins.invoke_all(calls),
+            Err(e) => calls.iter().map(|_| Err(e.clone())).collect(),
+        }
+    }
 }
 
-/// Every plugin of the harness. The router holds one of these as its tools,
-/// and so does each plugin granted `plugins`.
+type Instance = (Store<PluginState>, PluginModule);
+
+struct Plugin {
+    spec: PluginSpec,
+    component: Component,
+    /// Instances not running right now. A call takes one, or makes a new one
+    /// when all are busy, so the same agent can work on several things at once.
+    idle: Mutex<Vec<Instance>>,
+}
+
+/// What every plugin instance is made from.
+struct Registry {
+    engine: Engine,
+    linker: Linker<PluginState>,
+    llm: Component,
+    model: String,
+    project: Workspace,
+    plugins: Vec<Plugin>,
+}
+
+/// The plugins of the harness, seen from one place in a chain of calls. The
+/// router holds one of these as its tools, and so does each plugin granted
+/// `plugins`.
 #[derive(Clone)]
 struct Plugins {
-    all: Arc<OnceLock<Vec<Plugin>>>,
-    project: Workspace,
+    registry: Arc<Registry>,
+    /// How many agents deep this holder is.
+    depth: usize,
     activity: Activity,
 }
 
 impl Plugins {
-    fn spawn(engine: &Engine, manifest: Manifest, project: &Workspace, model: &str, activity: &Activity) -> Result<Self> {
-        let llm = load(engine, &manifest.llm)?;
+    fn load(engine: &Engine, manifest: Manifest, project: &Workspace, model: &str, activity: &Activity) -> Result<Self> {
         let mut linker = Linker::<PluginState>::new(engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         PluginModule::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
 
-        let registry = Self { all: Arc::new(OnceLock::new()), project: project.clone(), activity: activity.clone() };
-        let mut all = Vec::new();
+        let mut plugins = Vec::new();
         for spec in manifest.plugins {
-            let state = PluginState {
-                wasi: WasiState::new(&[]),
-                model: spec.model.clone().unwrap_or_else(|| model.to_string()),
-                llm: if spec.granted("llm") { Some(LlmClient::spawn(engine, &llm)?) } else { None },
-                workspace: spec.granted("workspace").then(|| project.allowing(&spec.allow)),
-                plugins: spec.granted("plugins").then(|| registry.clone()),
-                activity: activity.clone(),
-            };
-            let mut store = Store::new(engine, state);
-            let bindings = PluginModule::instantiate(&mut store, &load(engine, &spec.path)?, &linker)
-                .map_err(|e| anyhow!("plugin '{}': {e}", spec.name))?;
-            all.push(Plugin { spec, live: Mutex::new((store, bindings)) });
+            let component = load(engine, &spec.path)?;
+            plugins.push(Plugin { spec, component, idle: Mutex::new(Vec::new()) });
         }
-        let _ = registry.all.set(all);
-        Ok(registry)
+        let registry = Arc::new(Registry {
+            engine: engine.clone(),
+            linker,
+            llm: load(engine, &manifest.llm)?,
+            model: model.to_string(),
+            project: project.clone(),
+            plugins,
+        });
+        // One instance of each now, so a plugin that cannot start says so here.
+        let all = Self { registry, depth: 0, activity: activity.clone() };
+        for plugin in &all.registry.plugins {
+            let instance = all.instantiate(plugin).map_err(|e| anyhow!("plugin '{}': {e}", plugin.spec.name))?;
+            plugin.idle.lock().unwrap().push(instance);
+        }
+        Ok(all)
     }
 
-    fn all(&self) -> &[Plugin] {
-        self.all.get().map(Vec::as_slice).unwrap_or_default()
+    fn instantiate(&self, plugin: &Plugin) -> Result<Instance> {
+        let (registry, spec) = (&self.registry, &plugin.spec);
+        let state = PluginState {
+            wasi: WasiState::new(&[]),
+            model: spec.model.clone().unwrap_or_else(|| registry.model.clone()),
+            llm: if spec.granted("llm") { Some(LlmClient::spawn(&registry.engine, &registry.llm)?) } else { None },
+            workspace: spec.granted("workspace").then(|| registry.project.allowing(&spec.allow)),
+            plugins: spec.granted("plugins").then(|| self.clone()),
+            activity: self.activity.clone(),
+        };
+        let mut store = Store::new(&registry.engine, state);
+        let bindings = PluginModule::instantiate(&mut store, &plugin.component, &registry.linker)?;
+        Ok((store, bindings))
+    }
+
+    /// Asks several plugins at the same time, each on its own thread and its
+    /// own instance. Answers come back in the order of the calls.
+    fn invoke_all(&mut self, calls: Vec<ToolCall>) -> Vec<Result<String, CallError>> {
+        if calls.len() < 2 {
+            return calls.into_iter().map(|call| self.invoke(call)).collect();
+        }
+        self.activity.together(calls.len());
+        std::thread::scope(|scope| {
+            let running: Vec<_> = calls
+                .into_iter()
+                .enumerate()
+                .map(|(i, call)| {
+                    let mut branch = Self { activity: self.activity.branch(i + 1), ..self.clone() };
+                    scope.spawn(move || branch.invoke(call))
+                })
+                .collect();
+            let crashed = || Err(CallError::ExecutionFailed("the agent's thread crashed".into()));
+            running.into_iter().map(|thread| thread.join().unwrap_or_else(|_| crashed())).collect()
+        })
     }
 }
 
@@ -245,33 +311,52 @@ impl Tools for Plugins {
     /// The plugins that fit this project. The check is made on every call, so
     /// an expert appears as soon as the project gains what it works on.
     fn describe(&mut self) -> String {
-        let fitting = self.all().iter().filter(|p| p.spec.fits(&self.project));
-        let tools: Vec<_> =
-            fitting.map(|p| json!({ "name": p.spec.name, "description": p.spec.description })).collect();
+        let fitting = self.registry.plugins.iter().filter(|p| p.spec.fits(&self.registry.project));
+        let tools: Vec<_> = fitting
+            .map(|p| json!({ "name": p.spec.name, "description": p.spec.description, "when": p.spec.when }))
+            .collect();
         json!({ "tools": tools }).to_string()
     }
 
     /// `call.name` picks the plugin; its input is the `input` argument.
     fn invoke(&mut self, call: ToolCall) -> Result<String, CallError> {
-        let plugin = self.all().iter().find(|p| p.spec.name == call.name).ok_or_else(|| {
-            let names = self.all().iter().map(|p| p.spec.name.as_str()).collect::<Vec<_>>().join(", ");
+        let plugins = &self.registry.plugins;
+        let plugin = plugins.iter().find(|p| p.spec.name == call.name).ok_or_else(|| {
+            let names = plugins.iter().map(|p| p.spec.name.as_str()).collect::<Vec<_>>().join(", ");
             CallError::NotFound(format!("there is no plugin '{}' (plugins: {names})", call.name))
         })?;
-        let Ok(mut live) = plugin.live.try_lock() else {
+        if self.depth >= MAX_DEPTH {
             return Err(CallError::InvalidInput(format!(
-                "plugin '{}' is already running further up this chain of calls",
+                "'{}' was not asked: agents are already {MAX_DEPTH} deep in asking each other",
                 call.name
             )));
-        };
+        }
         let args: Value = serde_json::from_str(&call.args_json).unwrap_or(Value::Null);
         let input = args["input"].as_str().unwrap_or("");
-        let (store, bindings) = &mut *live;
-        self.activity.agent(&call.name, input, || {
+
+        // What the plugin does, and whoever it asks, is one level further in.
+        let inside = Self { depth: self.depth + 1, activity: self.activity.deeper(), ..self.clone() };
+        let idle = plugin.idle.lock().unwrap().pop();
+        let (mut store, bindings) = match idle {
+            Some(instance) => instance,
+            None => inside
+                .instantiate(plugin)
+                .map_err(|e| CallError::ExecutionFailed(format!("starting plugin '{}': {e}", call.name)))?,
+        };
+        let state = store.data_mut();
+        state.activity = inside.activity.clone();
+        if state.plugins.is_some() {
+            state.plugins = Some(inside);
+        }
+
+        let result = self.activity.agent(&call.name, input, || {
             bindings
                 .agentwos_core_agent()
-                .call_run(store, &[message("user", input)])
+                .call_run(&mut store, &[message("user", input)])
                 .map_err(|e| CallError::ExecutionFailed(format!("plugin '{}' crashed: {e}", call.name)))?
-        })
+        });
+        plugin.idle.lock().unwrap().push((store, bindings));
+        result
     }
 }
 
@@ -327,7 +412,7 @@ pub fn run(
     }
 
     let activity = Activity::new(trace);
-    let plugins = Plugins::spawn(engine, manifest, &project, &model, &activity)?;
+    let plugins = Plugins::load(engine, manifest, &project, &model, &activity)?;
     let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
 
     if let Some(text) = text {

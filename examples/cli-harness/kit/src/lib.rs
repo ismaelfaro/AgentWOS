@@ -19,7 +19,7 @@ wit_bindgen::generate!({
 });
 
 pub use agentwos::core::types::{CallError, Message, ToolCall};
-pub use agentwos::core::{llm, tool, workspace};
+pub use agentwos::core::{llm, team, tool, workspace};
 pub use exports::agentwos::core::agent::Guest;
 pub use serde_json::{json, Value};
 
@@ -106,17 +106,49 @@ pub fn run_line(program: &str, leading: &[&str], line: &str) -> Reply {
     run(program, &args)
 }
 
-/// The other plugin agents that fit this project, as (name, description).
-/// Needs the `plugins` grant; empty without it.
-pub fn agents() -> Vec<(String, String)> {
+/// Another plugin agent, as the manifest describes it.
+#[derive(Clone, PartialEq)]
+pub struct Agent {
+    pub name: String,
+    pub description: String,
+    /// The project markers it is an expert for: `Cargo.toml`, `*.py`.
+    pub when: Vec<String>,
+}
+
+impl Agent {
+    /// Whether files like this one are what the agent is an expert in.
+    pub fn knows(&self, path: &str) -> bool {
+        self.when.iter().filter_map(|marker| marker.strip_prefix('*')).any(|suffix| path.ends_with(suffix))
+    }
+}
+
+/// The other plugin agents that fit this project. Needs the `plugins` grant;
+/// empty without it.
+pub fn agents() -> Vec<Agent> {
     let described: Value = serde_json::from_str(&tool::describe()).unwrap_or(Value::Null);
     let text = |v: &Value| v.as_str().unwrap_or("").to_string();
-    described["tools"].as_array().into_iter().flatten().map(|t| (text(&t["name"]), text(&t["description"]))).collect()
+    let agent = |t: &Value| Agent {
+        name: text(&t["name"]),
+        description: text(&t["description"]),
+        when: t["when"].as_array().into_iter().flatten().map(text).collect(),
+    };
+    described["tools"].as_array().into_iter().flatten().map(agent).collect()
+}
+
+fn tool_call(agent: &str, input: &str) -> ToolCall {
+    ToolCall { name: agent.into(), args_json: json!({ "input": input }).to_string() }
 }
 
 /// Asks another plugin agent. Needs the `plugins` grant.
 pub fn call(agent: &str, input: &str) -> Reply {
-    tool::invoke(&ToolCall { name: agent.into(), args_json: json!({ "input": input }).to_string() })
+    tool::invoke(&tool_call(agent, input))
+}
+
+/// Asks several agents at the same time, as (agent, input) pairs. The answers
+/// come back in the same order. Needs the `plugins` grant.
+pub fn call_all(asks: &[(String, String)]) -> Vec<Reply> {
+    let calls: Vec<ToolCall> = asks.iter().map(|(agent, input)| tool_call(agent, input)).collect();
+    team::invoke_all(&calls)
 }
 
 /// Every JSON object in a model reply, in order. A small model often sends

@@ -95,8 +95,9 @@ each is 15 to 50 lines that know one tool and its rules.
 
 ## How it adapts to the project
 
-Every plugin can list `when` markers in the manifest: file names (`Cargo.toml`)
-or suffixes (`*.py`) to look for at the top of the project. A plugin with
+Every plugin can list `when` markers in the manifest: file names at the top of
+the project (`Cargo.toml`) or suffixes of files up to three folders down
+(`*.py`). A plugin with
 markers is offered to the other agents only when one is present.
 
 So in a Rust project `coder` is told about `rust` and `git` and never hears of
@@ -110,6 +111,50 @@ the operating system, what is in the folder, and whatever the project's
 
 `when` decides what agents are told about, not what you can call: `/git init`
 works in a folder that has no repository yet.
+
+## Agents working at the same time
+
+When a task has independent pieces, `coder` asks several agents at once: more
+`coder` agents, one per piece, or several experts.
+
+```
+> write 3 small python examples in parallel (sorting, fibonacci, word count) and make sure each runs
+● coder write 3 small python examples in parallel (sorting, fibonacci, word co…
+  ⇉ 3 agents at the same time
+  [1] ● coder Create examples/sorting.py with a simple sorting example ...
+  [2] ● coder Create examples/fibonacci.py with a Fibonacci sequence example ...
+  [3] ● coder Create examples/word_count.py with a word count example ...
+    [2] · write examples/fibonacci.py 80 lines
+    [2] ● python run examples/fibonacci.py
+      [2] ✓ $ python3 examples/fibonacci.py 1.2s
+    [3] · write examples/word_count.py 73 lines
+    ...
+⠹ [1] thinking nemotron 4.2s  +2 more at the same time
+```
+
+The number in brackets is the branch a line belongs to. Each call goes to its
+own instance of the agent: the host keeps a pool per plugin and starts another
+instance when all are busy, so five `coder` agents are five separate sandboxes
+with nothing shared but the project folder. A chain of agents asking agents
+stops at four deep.
+
+How much faster this is depends on the model server. A remote API answers the
+requests side by side; a local server answers as many at once as it is set to,
+and queues the rest.
+
+## Getting the right expert
+
+Three things steer work to the expert that should do it, none of them left to
+the model's memory:
+
+- Only the experts that fit the project are described to it.
+- When `coder` writes or edits a file, the result names the expert for that
+  kind of file: "To run or check examples/fib.py, ask the expert agent `python`."
+- If `coder` says it is done while code it changed was never run or checked,
+  it is sent back once, with the expert to ask.
+
+Which expert goes with which file comes from the same `when` markers: an
+expert with `*.py` is the expert for `.py` files.
 
 ## What a plugin can and cannot do
 
@@ -125,8 +170,8 @@ works in a folder that has no repository yet.
   nothing else; `coder` can run nothing. Programs start without a shell, with
   a minimal environment (no API keys), are stopped after `timeout_seconds`,
   and their output is cut at 256 KB.
-- **`plugins`** lets it call the other plugins. A chain of calls cannot loop:
-  a plugin that is already running further up the chain refuses.
+- **`plugins`** lets it call the other plugins, one at a time or several at
+  once. A chain of calls stops at four agents deep.
 - **An ungranted import fails** with an error that names the missing grant.
 
 Because `coder` runs no programs, an expert's rules hold for everyone: no
@@ -202,7 +247,8 @@ manifest entry.
 From `kit`: `text`, `command` and `words` take the request apart; `run` and
 `run_line` start an allowed program; `workspace::read`, `write` and
 `list_files` reach files; `llm::complete(&messages, "")` asks the plugin's
-model; `agents()` and `call(name, input)` reach the other plugins.
+model; `agents()`, `call(name, input)` and `call_all(asks)` reach the other
+plugins, the last one all at the same time.
 
 ## Layout
 
@@ -225,6 +271,9 @@ model; `agents()` and `call(name, input)` reach the other plugins.
   tool or language server.
 - Nothing asks for approval: an agent acts as soon as it decides to. The
   limits are the grants above.
-- Markers are looked for at the top of the project only.
+- Agents working at the same time are not kept from writing the same file; the
+  last write wins.
+- There is no time limit on a model call: a busy local server makes an agent
+  wait, and the clock on the spinner is how you notice.
 - OS controls are not applied to plugin calls yet.
 - This runs on the native host only; the browser kernel does not load plugins.

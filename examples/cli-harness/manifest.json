@@ -16,7 +16,7 @@
     },
     {
       "name": "project",
-      "description": "Describes the environment: operating system, files at the top of the project, the agents that fit it, and the project's instructions.",
+      "description": "Reports the environment: operating system, files at the top of the project, the agents that fit it, and the project's instructions. Takes no request and runs nothing.",
       "agent": "target/wasm32-wasip2/release/project.wasm",
       "grants": ["workspace", "plugins"],
       "allow": ["uname"]

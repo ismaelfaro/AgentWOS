@@ -13,7 +13,7 @@ const INSTRUCTION_CHARS: usize = 2000;
 const MAX_ENTRIES: usize = 40;
 
 impl Guest for Project {
-    fn run(_input: Vec<Message>) -> Reply {
+    fn run(input: Vec<Message>) -> Reply {
         let system = workspace::exec("uname", &["-srm".to_string()]).map(|r| r.stdout).unwrap_or_default();
         let entries = workspace::list_files("")?;
         let names: Vec<String> = entries
@@ -21,7 +21,7 @@ impl Guest for Project {
             .take(MAX_ENTRIES)
             .map(|e| if e.kind == "dir" { format!("{}/", e.path) } else { e.path.clone() })
             .collect();
-        let agents: Vec<String> = agents().into_iter().map(|(name, _)| name).collect();
+        let agents: Vec<String> = agents().into_iter().map(|agent| agent.name).collect();
 
         let mut report = format!(
             "System: {}\nFiles: {}{}\nAgents that fit this project: {}",
@@ -30,6 +30,12 @@ impl Guest for Project {
             if entries.len() > MAX_ENTRIES { "  ..." } else { "" },
             agents.join(", "),
         );
+        if !text(&input).is_empty() {
+            report = format!(
+                "The project agent only reports on the environment; it runs and changes nothing. \
+                 To run code, ask the expert for its language.\n{report}"
+            );
+        }
         if let Some(name) = INSTRUCTIONS.iter().find(|name| entries.iter().any(|e| e.path == **name)) {
             if let Ok(body) = workspace::read(name) {
                 report += &format!("\nInstructions from {name}:\n{}", clip(body.trim(), INSTRUCTION_CHARS));
