@@ -2,24 +2,15 @@
 // with WebAudio, and shows what every agent and control did.
 
 const $ = (id) => document.getElementById(id);
-const worker = new Worker(new URL("worker.js", import.meta.url), { type: "module" });
+const worker = new Worker(new URL("worker.js?v=" + __BUILD_ID__, import.meta.url), { type: "module" });
 
-const SUGGESTIONS = [
-  "Make the drums half time",
-  "Drums play a breakbeat",
-  "Bass walking on F",
-  "Bass octaves on G",
-  "Make the melody dark",
-  "Lead goes frantic",
-  "Set the tempo to 140",
-  "Set the tempo to 300",
-  "Silence the drums and make the melody bright",
-];
 const COLORS = { Drummer: "--drums", Bassist: "--bass", Lead: "--lead" };
 const ROWS = ["lead", "bass", "hat", "snare", "kick"];
 const ROW_COLOR = { lead: "--lead", bass: "--bass", hat: "--drums", snare: "--drums", kick: "--drums" };
 
+const MAX_LOG_ENTRIES = 40;
 let agents = [];
+let briefs = [];
 let state = null;
 let cueId = 0;
 
@@ -186,14 +177,23 @@ function renderBand() {
   for (const a of agents) $("setting-" + a.agent).textContent = settingOf(a.agent);
 }
 
+/** What an agent can be asked for, read from its tool declarations. */
+function optionsOf(index) {
+  return (briefs[index]?.tools ?? []).flatMap((t) =>
+    Object.entries(t.function.parameters.properties).map(([name, p]) =>
+      p.enum ? `${name}: ${p.enum.map((v) => v.replaceAll("_", " ")).join(", ")}`
+        : p.type === "integer" ? `${name}: a number` : `${name}: ${p.description ?? "text"}`));
+}
+
 function buildBand() {
-  $("band").replaceChildren(...agents.map((a) =>
+  $("band").replaceChildren(...agents.map((a, i) =>
     el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--accent"})` }, [
       el("h3", {}, a.agent),
       el("div", { class: "muted" }, a.role),
       el("div", { class: "setting", id: "setting-" + a.agent }),
       el("div", { class: "last", id: "last-" + a.agent }, "waiting for a cue"),
       el("div", { class: "meter", title: "model confidence of the last call" }, el("div", { id: "meter-" + a.agent })),
+      el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
     ])));
   renderBand();
 }
@@ -211,6 +211,7 @@ function logCue(result) {
         lines.push(el("div", { class: "line" }, [
           el("strong", {}, turn.agent), ` heard "${attempt.clause}" `,
           el("span", { class: "tag ignored" }, "ignored"), ` ${attempt.ignored} (confidence ${attempt.confidence.toFixed(2)})`,
+          el("div", { class: "muted" }, `${turn.agent} understands ${optionsOf(agents.findIndex((a) => a.agent === turn.agent)).join("; ")}`),
         ]));
         last = { text: `ignored: ${attempt.ignored}`, confidence: attempt.confidence };
       }
@@ -220,6 +221,7 @@ function logCue(result) {
           el("strong", {}, turn.agent), " ", el("code", {}, callText(c.call)),
           ` confidence ${attempt.confidence.toFixed(2)}, ${turn.latency_ms} ms`,
           ...c.verdicts.map((v) => el("span", { class: "tag " + v.verdict, title: v.detail }, `${v.module}: ${v.verdict}`)),
+          c.result?.startsWith("no change") ? el("span", { class: "tag" }, "no change") : null,
           el("div", { class: "muted" }, c.verdicts
             .filter((v) => v.detail)
             .map((v) => (v.verdict === "modify" ? `changed to ${callText(c.delivered)}` : v.detail))
@@ -237,11 +239,25 @@ function logCue(result) {
       card.classList.add("flash");
     }
   }
-  if (!lines.length) lines.push(el("div", { class: "line muted" }, "No agent was addressed. Name an instrument: drums, bass, melody, or tempo."));
-  const entry = el("div", { class: "entry" }, [el("div", { class: "cue" }, result.text), ...lines]);
+  if (!lines.length) {
+    const names = briefs.map((b) => b.aliases?.[0]).filter(Boolean).join(", ");
+    lines.push(el("div", { class: "line muted" }, `No agent was addressed. Name one of: ${names}.`));
+  }
   const log = $("log");
   if (log.firstElementChild?.tagName === "P") log.replaceChildren();
+  // The same cue sent again with the same outcome bumps a counter instead of adding a row.
+  const signature = result.text.trim().toLowerCase() + "|" + JSON.stringify(result.turns.map((t) =>
+    t.attempts.map((a) => [a.ignored, a.calls.map((c) => [c.call, c.verdicts.map((v) => v.verdict), c.result, c.error])])));
+  const top = log.firstElementChild;
+  if (top?.dataset.signature === signature) {
+    top.dataset.count = Number(top.dataset.count) + 1;
+    top.querySelector(".times").textContent = ` x${top.dataset.count}`;
+    return;
+  }
+  const entry = el("div", { class: "entry", "data-signature": signature, "data-count": 1 },
+    [el("div", { class: "cue" }, [result.text, el("span", { class: "times muted" })]), ...lines]);
   log.prepend(entry);
+  while (log.children.length > MAX_LOG_ENTRIES) log.lastElementChild.remove();
 }
 
 // ---------- worker messages ----------
@@ -254,7 +270,10 @@ worker.onmessage = ({ data }) => {
       : data.label === "engine" ? "Loading the Cactus engine" : "Starting the kernel and the band";
   } else if (data.type === "ready") {
     agents = data.setup.agents;
+    briefs = data.briefs;
     state = data.state;
+    $("chips").replaceChildren(...(data.setup.suggestions ?? []).map((s) =>
+      el("button", { class: "chip", type: "button", onclick: () => sendCue(s) }, s)));
     $("start-card").hidden = true;
     for (const id of ["conductor", "band", "roll-card", "log-card"]) $(id).hidden = false;
     $("meta").textContent = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB - ${agents.length} agents - ${data.setup.key} - no server`;
@@ -273,6 +292,7 @@ worker.onmessage = ({ data }) => {
     $("send").disabled = false;
     setStatus("live", "live");
   } else if (data.type === "error") {
+    console.error("kernel worker:", data.message, data.stack);
     setStatus("error", "bad");
     $("progress-text").textContent = data.message;
     $("send").disabled = false;
@@ -307,5 +327,4 @@ $("toggle").addEventListener("click", () => {
     startPlayback();
   }
 });
-$("chips").replaceChildren(...SUGGESTIONS.map((s) => el("button", { class: "chip", type: "button", onclick: () => sendCue(s) }, s)));
 drawRoll();

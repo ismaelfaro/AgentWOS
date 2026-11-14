@@ -22,9 +22,17 @@ export function wasiImports(shim, extra = {}) {
   });
 }
 
-/** Fetches and compiles the core wasm files of one transpiled component. */
-export function coreModuleLoader(baseUrl) {
-  return (path) => WebAssembly.compileStreaming(fetch(new URL(path, baseUrl)));
+/**
+ * Fetches and compiles the core wasm files of one transpiled component.
+ * `version` goes into the URL so a rebuilt page never pairs new JS glue with
+ * core modules the browser cached from an older build.
+ */
+export function coreModuleLoader(baseUrl, version = "") {
+  return (path) => {
+    const url = new URL(path, baseUrl);
+    if (version) url.searchParams.set("v", version);
+    return WebAssembly.compileStreaming(fetch(url));
+  };
 }
 
 /**

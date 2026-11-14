@@ -35,6 +35,7 @@ main { max-width:1000px; margin:0 auto; padding:16px; }
 .agent h3 { margin:0; font-size:15px; }
 .agent .setting { font-size:17px; font-weight:600; margin:6px 0 2px; overflow-wrap:anywhere; }
 .agent .last { font-size:12px; color:var(--muted); min-height:36px; overflow-wrap:anywhere; }
+.agent .options { margin-top:8px; font-size:11px; color:var(--muted); overflow-wrap:anywhere; }
 .agent.flash { animation:flash .9s ease-out; }
 @keyframes flash { from { background:var(--soft); } to { background:var(--card); } }
 .meter { height:4px; background:var(--soft); border-radius:2px; margin-top:8px; }

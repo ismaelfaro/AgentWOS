@@ -3,6 +3,7 @@
 import * as cli from "@bytecodealliance/preview2-shim/cli";
 import * as clocks from "@bytecodealliance/preview2-shim/clocks";
 import * as io from "@bytecodealliance/preview2-shim/io";
+import * as random from "@bytecodealliance/preview2-shim/random";
 import createCactus from "../vendor/cactus.js";
 import { coreModuleLoader, createKernel, wasiImports } from "../../../../web/kernel/kernel.js";
 import { createNeedle, fetchCached } from "../../../../web/kernel/needle.js";
@@ -22,8 +23,8 @@ async function init() {
   postMessage({ type: "progress", label: "starting", loaded: 1, total: 1 });
 
   const needle = await createNeedle({ createCactus, wasmBinary, modelBytes });
-  const shim = { cli, clocks, io };
-  const wasm = (name) => coreModuleLoader(new URL(`wasm/${name}/`, base));
+  const shim = { cli, clocks, io, random };
+  const wasm = (name) => coreModuleLoader(new URL(`wasm/${name}/`, base), __BUILD_ID__);
 
   const stage = (await instantiateStage(wasm("stage"), wasiImports(shim))).stage;
   const control = (await instantiateControl(wasm("sound-engineer"), wasiImports(shim))).control;
@@ -45,16 +46,21 @@ async function init() {
   });
 }
 
+function fail(e) {
+  postMessage({ type: "error", message: String(e?.message ?? e), stack: String(e?.stack ?? "") });
+}
+
 self.onmessage = ({ data }) => {
+  if (data.type !== "init" && !kernel) return fail(new Error("the kernel is still starting"));
   try {
     if (data.type === "init") {
-      init().catch((e) => postMessage({ type: "error", message: String(e.message ?? e) }));
+      init().catch(fail);
     } else if (data.type === "cue") {
       postMessage({ type: "cue-result", id: data.id, result: kernel.cue(data.text) });
     } else if (data.type === "render") {
       postMessage({ type: "bar", bar: data.bar, data: kernel.render(data.bar) });
     }
   } catch (e) {
-    postMessage({ type: "error", message: String(e.message ?? e) });
+    fail(e);
   }
 };

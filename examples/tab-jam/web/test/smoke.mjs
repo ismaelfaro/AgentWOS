@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import * as cli from "@bytecodealliance/preview2-shim/cli";
 import * as clocks from "@bytecodealliance/preview2-shim/clocks";
 import * as io from "@bytecodealliance/preview2-shim/io";
+import * as random from "@bytecodealliance/preview2-shim/random";
 import { createKernel, wasiImports } from "../../../../web/kernel/kernel.js";
 import { createNeedle } from "../../../../web/kernel/needle.js";
 import { instantiate as instantiateActor } from "../gen/actor/actor.js";
@@ -27,7 +28,7 @@ const needle = await createNeedle({
   modelBytes: await readFile(modelPath),
 });
 
-const shim = { cli, clocks, io };
+const shim = { cli, clocks, io, random };
 const load = (dir) => async (path) => WebAssembly.compile(await readFile(new URL(`../gen/${dir}/${path}`, here)));
 const stage = (await instantiateStage(load("stage"), wasiImports(shim))).stage;
 const control = (await instantiateControl(load("sound-engineer"), wasiImports(shim))).control;
@@ -52,25 +53,51 @@ function run(text) {
   return r;
 }
 
+const applied = (r) => r.turns.flatMap((t) => t.attempts.flatMap((a) => a.calls)).filter((c) => c.delivered && !c.error);
+
 check("three agents", kernel.agents.length === 3);
 check("render has notes", kernel.render(0).notes.length > 0);
 
-let r = run("Make the drums half time");
-check("drums half_time", r.state.drums === "half_time");
+// Every suggestion the UI offers must produce at least one applied call.
+for (const cue of kernel.setup.suggestions) {
+  check(`suggestion works: ${cue}`, applied(run(cue)).length > 0);
+}
+
+// Phrasings that real users tried.
+let r = run("drums double time");
+check("drums double_time", r.state.drums === "double_time");
+r = run("make drum jazz");
+check("drums jazz", r.state.drums === "jazz");
+r = run("make drum random");
+check("drums random", r.state.drums === "random");
+r = run("speed to 120");
+check("speed to 120", r.state.tempo === 120);
+r = run("bass octaves G");
+check("bass octaves on G", r.state.bass_root === "G" && r.state.bass_movement === "octaves");
+r = run("lead goes jazz");
+check("lead jazzy", r.state.lead === "jazzy");
+r = run('drums double time"');
+check("stray quote is ignored", r.state.drums === "double_time");
+
+// Stage and actor behaviour.
 r = run("Bass walking on F");
-check("bass walking on F", r.state.bass_root === "F" && r.state.bass_movement === "walking");
-r = run("Make the melody dark");
-check("lead dark", r.state.lead === "dark");
+r = run("bass A");
+check("root-only cue keeps the movement", r.state.bass_movement === "walking", `movement=${r.state.bass_movement}`);
+check("engineer moves A into the key (Ab)", r.state.bass_root === "Ab", `root=${r.state.bass_root}`);
+r = run("Bass walking on F");
+r = run("Bass walking on F");
+check("repeat reports no change", applied(r)[0]?.result.startsWith("no change"), applied(r)[0]?.result);
 r = run("Drums play a breakbeat and make the melody bright");
 check("compound cue splits across agents", r.state.drums === "breakbeat" && r.state.lead === "bright");
 r = run("Silence the drums");
 check("only drums silenced", r.state.drums === "silent" && r.state.lead === "bright");
+
+// Sound engineer.
 r = run("Set the tempo to 300");
 check("engineer clamps tempo to 160", r.state.tempo === 160, `tempo=${r.state.tempo}`);
 r = run("Lead goes frantic");
 check("engineer blocks frantic at 160 bpm", r.state.lead === "bright");
 r = run("Set the tempo to 120");
-check("tempo 120", r.state.tempo === 120);
 r = run("Lead goes frantic");
 check("frantic allowed at 120 bpm", r.state.lead === "frantic");
 r = run("Tell me a joke");

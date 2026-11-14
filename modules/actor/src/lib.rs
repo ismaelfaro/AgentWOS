@@ -10,7 +10,9 @@ use serde_json::{json, Value};
 
 struct Component;
 
-const DEFAULT_MIN_CONFIDENCE: f64 = 0.15;
+/// The engine already withholds calls it scores below its own floor, so this
+/// only guards against engines that do not.
+const DEFAULT_MIN_CONFIDENCE: f64 = 0.1;
 
 /// Small tool-calling models handle one intent at a time, so a compound
 /// instruction is split into clauses and each is asked separately.
@@ -21,7 +23,7 @@ fn clauses(input: &str) -> Vec<String> {
     }
     text.lines()
         .flat_map(|l| l.split(". "))
-        .map(|c| c.trim().trim_end_matches('.').to_string())
+        .map(|c| c.trim_matches(|ch: char| ch.is_whitespace() || "\"'.!?".contains(ch)).to_string())
         .filter(|c| !c.is_empty())
         .collect()
 }
@@ -32,6 +34,35 @@ fn addressed(clause: &str, aliases: &[String]) -> bool {
     let lower = clause.to_lowercase();
     let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).collect();
     aliases.iter().any(|a| words.iter().any(|w| w == a))
+}
+
+/// Names of the required parameters of `tool_name` in an OpenAI-style tool list.
+fn required_params(tools: &Value, tool_name: &str) -> Vec<String> {
+    tools
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|t| t["function"]["name"].as_str() == Some(tool_name))
+        .and_then(|t| t["function"]["parameters"]["required"].as_array())
+        .map(|r| r.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
+/// Small models fill optional arguments with plausible values the user never
+/// asked for. An optional text argument is kept only when the clause mentions it.
+fn drop_ungrounded(call: &mut Value, clause: &str, tools: &Value) {
+    let required = required_params(tools, call["name"].as_str().unwrap_or(""));
+    let clause = clause.to_lowercase();
+    if let Some(args) = call["arguments"].as_object_mut() {
+        args.retain(|key, value| {
+            let Some(text) = value.as_str() else { return true };
+            if required.iter().any(|r| r == key) {
+                return true;
+            }
+            let stem: String = text.to_lowercase().replace('_', " ").chars().take(4).collect();
+            !stem.is_empty() && clause.contains(&stem)
+        });
+    }
 }
 
 impl Guest for Component {
@@ -55,7 +86,10 @@ impl Guest for Component {
             let reply: Value = serde_json::from_str(&raw)
                 .map_err(|e| CallError::ExecutionFailed(format!("llm reply is not JSON: {e}")))?;
             let confidence = reply["confidence"].as_f64().unwrap_or(0.0);
-            let calls = reply["function_calls"].as_array().cloned().unwrap_or_default();
+            let mut calls = reply["function_calls"].as_array().cloned().unwrap_or_default();
+            for call in &mut calls {
+                drop_ungrounded(call, &clause, &brief["tools"]);
+            }
             let ignored = if calls.is_empty() {
                 Some("the model proposed no call")
             } else if confidence < min_confidence {

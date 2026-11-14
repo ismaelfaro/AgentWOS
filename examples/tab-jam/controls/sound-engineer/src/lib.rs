@@ -12,11 +12,32 @@ const MIN_BPM: u64 = 60;
 const MAX_BPM: u64 = 160;
 const FRANTIC_LIMIT_BPM: u64 = 150;
 
+/// Note names as semitones above C, and the notes of C natural minor.
+const NOTES: [(&str, u8); 17] = [
+    ("C", 0), ("C#", 1), ("Db", 1), ("D", 2), ("D#", 3), ("Eb", 3), ("E", 4), ("F", 5), ("F#", 6),
+    ("Gb", 6), ("G", 7), ("G#", 8), ("Ab", 8), ("A", 9), ("A#", 10), ("Bb", 10), ("B", 11),
+];
+const C_MINOR: [(&str, u8); 7] = [("C", 0), ("D", 2), ("Eb", 3), ("F", 5), ("G", 7), ("Ab", 8), ("Bb", 10)];
+
+/// The closest note of the key to `root`, or None when it already fits or is not a note.
+fn in_key_replacement(root: &str) -> Option<&'static str> {
+    let pitch = NOTES.iter().find(|(n, _)| n.eq_ignore_ascii_case(root.trim()))?.1;
+    if C_MINOR.iter().any(|(_, p)| *p == pitch) {
+        return None;
+    }
+    // Every note outside the scale has a scale note one semitone below it.
+    C_MINOR.iter().find(|(_, p)| *p + 1 == pitch).map(|(n, _)| *n)
+}
+
 /// True when this call would leave every instrument silent.
 fn silences_the_band(name: &str, args: &Value, state: &Value) -> bool {
     let silent = |v: &Value| v.as_str() == Some("silent");
     let drums = if name == "set_drum_pattern" { &args["style"] } else { &state["drums"] };
-    let bass = if name == "set_bass_line" { &args["movement"] } else { &state["bass_movement"] };
+    let bass = if name == "set_bass_line" && !args["movement"].is_null() {
+        &args["movement"]
+    } else {
+        &state["bass_movement"]
+    };
     let lead = if name == "set_lead_mood" { &args["mood"] } else { &state["lead"] };
     silent(drums) && silent(bass) && silent(lead)
 }
@@ -39,6 +60,14 @@ impl Guest for Component {
                         json!({ "name": name, "arguments": { "bpm": clamped } }).to_string(),
                     );
                 }
+            }
+        }
+
+        if name == "set_bass_line" {
+            if let Some(fixed) = args["root"].as_str().and_then(in_key_replacement) {
+                let mut corrected = call.clone();
+                corrected["arguments"]["root"] = json!(fixed);
+                return Verdict::Modify(corrected.to_string());
             }
         }
 
