@@ -24,6 +24,19 @@ fn critical_resource(context: &str) -> Option<String> {
 }
 
 impl Guest for Component {
+    fn describe() -> String {
+        serde_json::json!({
+            "title": "Guardia",
+            "role": "Inspects every colonist action before it is delivered",
+            "rules": [
+                "An action that proposes sabotage or a full shutdown is blocked.",
+                format!("An action longer than {MAX_CHARS} characters is cut to that length."),
+                format!("A claim of abundance while a resource is below {CRITICAL_THRESHOLD}% is flagged."),
+            ],
+        })
+        .to_string()
+    }
+
     fn inspect(_author: String, text: String, context: String) -> Verdict {
         let lower = text.to_lowercase();
 

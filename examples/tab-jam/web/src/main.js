@@ -2,6 +2,7 @@
 // with WebAudio, and shows what every agent and control did.
 
 import { createPad } from "./pads.js";
+import { createSignals } from "./signals.js";
 import { createSynth } from "./synth.js";
 
 const $ = (id) => document.getElementById(id);
@@ -13,11 +14,18 @@ const ROW_COLOR = { orchestra: "--orchestra", lead: "--lead", bass: "--bass", ha
 const ROW_OF = { drone: "orchestra" };
 
 const MAX_LOG_ENTRIES = 40;
+const callText = (c) => `${c.name}(${Object.entries(c.arguments).map(([k, v]) => `${k}: ${v}`).join(", ")})`;
+const signals = createSignals($("band"));
 let agents = [];
 let briefs = [];
 let pads = [];
 let choices = [];
 let padDescriptions = [];
+let controls = [];
+/** Verdict counts and the latest verdict per control, by control name. */
+const tally = {};
+const VERDICT_COLOR = { allow: "--ok", modify: "--warn", flag: "--warn", block: "--bad", error: "--bad" };
+const VERDICT_WORD = { allow: "allowed", modify: "changed", flag: "flagged", block: "blocked", error: "failed" };
 let state = null;
 let cueId = 0;
 
@@ -33,8 +41,14 @@ function el(tag, attrs = {}, children = []) {
   return n;
 }
 
+const NEEDLE_URL = "https://cactuscompute.com/needle";
+
 function showMeta() {
-  if (audio.metaBase) $("meta").textContent = audio.metaBase + (audio.leadSample ? " - sampled lead" : "");
+  if (!audio.metaBase) return;
+  $("meta").replaceChildren(
+    audio.metaBase + " - Thanks to ",
+    el("a", { href: NEEDLE_URL, target: "_blank", rel: "noopener" }, audio.modelLabel),
+  );
 }
 
 function setStatus(text, kind = "") {
@@ -78,6 +92,8 @@ function scheduleBar() {
   audio.synth.setLeadSound(audio.useSample ? "sample" : data.lead_sound ?? "saw");
   for (const n of data.notes) audio.synth.playNote(n, start + n.step * step, step);
   audio.now = { data, start, duration: step * 16, bar: audio.bar };
+  // The bar clock: a faint spike from the drummer to everyone, on the downbeat.
+  setTimeout(() => emit("tempo", 0.25), Math.max(0, (start - audio.ctx.currentTime) * 1000));
   audio.last = data;
   audio.bars.delete(audio.bar);
   audio.nextBarTime = start + step * 16;
@@ -138,6 +154,106 @@ function drawRoll() {
     g.fillRect(label + pos * (W - label), 0, 2, H);
   }
   $("bar-label").textContent = `bar ${now.bar + 1} - ${now.data.tempo} bpm - C minor`;
+}
+
+// ---------- signals between agents ----------
+const cardOf = (index) => (agents[index] ? $("agent-" + agents[index].agent) : null);
+
+/** The resolved colour of a CSS variable, for SVG strokes and animations. */
+const cssColor = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const colorOf = (index) => cssColor(COLORS[agents[index]?.agent] ?? "--orchestra");
+
+/**
+ * Sends a spike along every link that carries `signal`: from the agent that
+ * owns the value to each agent that follows it. The links come from the stage.
+ */
+function emit(signal, strength) {
+  for (const link of state?.links ?? []) {
+    if (link.signal !== signal) continue;
+    link.to.forEach((to, i) =>
+      signals.spike(cardOf(link.from), cardOf(to), { color: colorOf(link.from), strength, delay: i * 30 }));
+  }
+}
+
+/** Spikes for whatever changed between two states of the band. */
+function emitChanges(before, after) {
+  for (const link of after?.links ?? []) {
+    if (before && before[link.state] !== after[link.state]) emit(link.signal, 1);
+  }
+}
+
+/** A text cue travels from the cue box to every agent that took it. */
+function emitCue(result) {
+  if (result.source) return;
+  result.turns.forEach((turn, i) => {
+    if (!turn.attempts.length) return;
+    signals.spike($("cue"), $("agent-" + turn.agent), { color: cssColor("--accent"), strength: 0.9, delay: i * 40 });
+  });
+}
+
+/**
+ * Every tool call goes to the controller that inspects it and comes back with
+ * a verdict: the outbound spike has the agent's colour, the return one the
+ * verdict's. A request to add an agent starts at the add tile.
+ */
+function emitVerdicts(result) {
+  let n = 0;
+  for (const turn of result.turns) {
+    const index = agents.findIndex((a) => a.agent === turn.agent);
+    const card = index >= 0 ? cardOf(index) : result.added ? $("agent-" + result.added.agent) : $("add-agent");
+    const color = index >= 0 ? colorOf(index) : cssColor("--accent");
+    for (const attempt of turn.attempts) {
+      for (const call of attempt.calls) {
+        for (const verdict of call.verdicts) {
+          const controller = $("controller-" + verdict.module);
+          const delay = 120 + n++ * 70;
+          signals.spike(card, controller, { color, strength: 0.5, delay });
+          signals.spike(controller, card, { color: cssColor(VERDICT_COLOR[verdict.verdict] ?? "--muted"), strength: 0.9, delay: delay + 380 });
+        }
+      }
+    }
+  }
+}
+
+// ---------- controller agents ----------
+function recordVerdicts(result) {
+  for (const turn of result.turns) {
+    for (const attempt of turn.attempts) {
+      for (const call of attempt.calls) {
+        for (const verdict of call.verdicts) {
+          const t = (tally[verdict.module] ??= { allow: 0, modify: 0, flag: 0, block: 0, error: 0, last: null });
+          t[verdict.verdict] = (t[verdict.verdict] ?? 0) + 1;
+          const what = verdict.verdict === "modify" && call.delivered ? `, now ${callText(call.delivered)}` : verdict.detail ? `: ${verdict.detail}` : "";
+          t.last = { verdict: verdict.verdict, text: `${turn.agent} ${callText(call.call)} ${VERDICT_WORD[verdict.verdict] ?? verdict.verdict}${what}` };
+        }
+      }
+    }
+  }
+}
+
+function renderControllers() {
+  for (const c of controls) {
+    const t = tally[c.name];
+    $("tally-" + c.name)?.replaceChildren(...["allow", "modify", "block", "flag"].map((v) =>
+      el("span", { class: "tag " + (t?.[v] ? v : "") }, `${VERDICT_WORD[v]} ${t?.[v] ?? 0}`)));
+    const last = $("verdict-" + c.name);
+    if (last && t?.last) {
+      last.textContent = t.last.text;
+      last.className = "last verdict-" + t.last.verdict;
+    }
+  }
+}
+
+function controllerCards() {
+  return controls.map((c) => el("div", { class: "agent controller", id: "controller-" + c.name, style: "--c:var(--controller)" }, [
+    el("div", { class: "controller-head" }, [
+      el("h3", {}, c.title + " Agent"),
+      el("div", { class: "muted" }, c.role),
+      el("div", { class: "tally", id: "tally-" + c.name }),
+      el("div", { class: "last", id: "verdict-" + c.name }, "no calls inspected yet"),
+    ]),
+    el("ul", { class: "rules" }, c.rules.map((rule) => el("li", {}, rule))),
+  ]));
 }
 
 // ---------- band panel ----------
@@ -238,7 +354,9 @@ function buildBand() {
     el("strong", {}, "+ Add agent"),
     el("span", { class: "muted" }, "One more orchestra section joins: its own timbre, note, detune and pulse, on the band's root and clock."),
   ]));
-  $("band").replaceChildren(...cards);
+  $("band").replaceChildren(...controllerCards(), ...cards);
+  signals.attach();
+  renderControllers();
   renderBand();
 }
 
@@ -248,8 +366,6 @@ function addAgent() {
 }
 
 // ---------- audit log ----------
-const callText = (c) => `${c.name}(${Object.entries(c.arguments).map(([k, v]) => `${k}: ${v}`).join(", ")})`;
-
 function logCue(result) {
   const lines = [];
   for (const turn of result.turns) {
@@ -326,13 +442,15 @@ worker.onmessage = ({ data }) => {
       : data.label === "engine" ? "Loading the Cactus engine" : "Starting the kernel and the band";
   } else if (data.type === "ready") {
     agents = data.setup.agents;
+    controls = data.controls ?? [];
     briefs = data.briefs;
     state = data.state;
     $("chips").replaceChildren(...(data.setup.suggestions ?? []).map((s) =>
       el("button", { class: "chip", type: "button", onclick: () => sendCue(s) }, s)));
     $("start-card").hidden = true;
-    for (const id of ["conductor", "band", "roll-card", "log-card"]) $(id).hidden = false;
-    audio.metaBase = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB - ${agents.length} agents - ${data.setup.key} - no server`;
+    for (const id of ["conductor", "band", "signal-legend", "roll-card", "log-card"]) $(id).hidden = false;
+    audio.modelLabel = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB`;
+    audio.metaBase = `${agents.length} agents - no server`;
     showMeta();
     padDescriptions = data.setup.pads ?? [];
     buildBand();
@@ -342,6 +460,7 @@ worker.onmessage = ({ data }) => {
     audio.bars.set(data.bar, data.data);
     if (data.bar === 0 && !audio.playing) startPlayback();
   } else if (data.type === "cue-result") {
+    const before = state;
     state = data.result.state;
     const added = data.result.added;
     if (added) {
@@ -356,6 +475,11 @@ worker.onmessage = ({ data }) => {
       $("add-agent").disabled = false;
     }
     renderBand();
+    recordVerdicts(data.result);
+    renderControllers();
+    emitCue(data.result);
+    emitVerdicts(data.result);
+    emitChanges(before, state);
     logCue(data.result);
     // The next bar was rendered before the cue; ask again so the change lands on it.
     worker.postMessage({ type: "render", bar: audio.bar });

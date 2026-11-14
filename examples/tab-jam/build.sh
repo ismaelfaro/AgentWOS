@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds everything Tab Jam needs and leaves a static site in web/dist.
-#   1. Rust components (stage, sound engineer, shared actor) -> wasm32-wasip2
+#   1. Rust components (stage, director, shared actor) -> wasm32-wasip2
 #   2. Cactus engine (cactus.js + cactus.wasm), pinned and checksum-verified
 #   3. jco: components -> JS + core wasm
 #   4. esbuild: kernel worker and UI bundles
@@ -9,7 +9,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 web="$here/web"
 
-for crate in "$root/modules/actor" "$here/stage" "$here/controls/sound-engineer"; do
+for crate in "$root/modules/actor" "$here/stage" "$here/controls/director-agentWOS"; do
   (cd "$crate" && cargo build --release --target wasm32-wasip2)
 done
 
@@ -39,7 +39,7 @@ transpile() { # wasm name
 }
 transpile "$root/modules/actor/target/wasm32-wasip2/release/actor.wasm" actor
 transpile "$here/stage/target/wasm32-wasip2/release/tab_jam_stage.wasm" stage
-transpile "$here/controls/sound-engineer/target/wasm32-wasip2/release/sound_engineer.wasm" sound-engineer
+transpile "$here/controls/director-agentWOS/target/wasm32-wasip2/release/director_agentwos.wasm" director-agentWOS
 
 # Generated code and cactus.js keep Node-only branches that never run in a browser.
 npx esbuild src/worker.js src/main.js src/synth.js --bundle --format=esm --target=es2022 --outdir="$assets" \

@@ -108,6 +108,15 @@ impl Guest for Component {
         lead::state(&mut state);
         state["key"] = json!(music::KEY);
         orchestra::state(&mut state);
+        // Who follows whom. `state` names the field that carries the signal, so a
+        // UI can show it travelling when that field changes.
+        let everyone = 0..ORCHESTRA + orchestra::count() as u32;
+        state["links"] = json!([
+            { "signal": "tempo", "state": "tempo", "from": DRUMMER,
+              "to": everyone.clone().filter(|a| *a != DRUMMER).collect::<Vec<_>>() },
+            { "signal": "root", "state": "bass_root", "from": BASSIST,
+              "to": everyone.filter(|a| *a >= LEAD).collect::<Vec<_>>() },
+        ]);
         state.to_string()
     }
 }

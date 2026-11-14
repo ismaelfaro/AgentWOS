@@ -44,8 +44,26 @@ fn silences_the_band(name: &str, args: &Value, state: &Value) -> bool {
     silent(drums) && silent(bass) && silent(lead)
 }
 
-/// The sound engineer: `text` is one tool call as JSON, `context` is the band state.
+/// The director: `text` is one tool call as JSON, `context` is the band state.
 impl Guest for Component {
+    // The rules are written from the same constants `inspect` uses, so what a
+    // page shows cannot drift from what is enforced.
+    fn describe() -> String {
+        json!({
+            "title": "Orchestra Director",
+            "role": "Inspects every tool call before it reaches the band",
+            "rules": [
+                format!("Tempo stays between {MIN_BPM} and {MAX_BPM} bpm; anything outside is moved to the limit."),
+                "A bass root outside C minor is moved to the nearest note of the key.",
+                format!("A frantic lead is blocked at {FRANTIC_LIMIT_BPM} bpm or more."),
+                "A call that would silence drums, bass and lead together is blocked.",
+                format!("At most {MAX_DRONES} orchestra sections may join; a further one is blocked."),
+                format!("A section's detune is limited to {MAX_DETUNE_CENTS} cents."),
+            ],
+        })
+        .to_string()
+    }
+
     fn inspect(_author: String, text: String, context: String) -> Verdict {
         let Ok(call) = serde_json::from_str::<Value>(&text) else {
             return Verdict::Block("the call is not valid JSON".into());

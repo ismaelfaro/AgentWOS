@@ -29,7 +29,8 @@ records what happened. A second kernel runs the same components in the browser.
 - **Agent.** A WASM component that calls the LLM and tools through host imports.
 - **Control.** A WASM component that inspects every action before it is
   delivered. It can allow, modify, block or flag it. A blocked action is not
-  delivered.
+  delivered. It also describes itself (`describe`), so a UI can
+  show what it enforces.
 - **Log.** Each run writes `window.SIM_DATA` as a script, so a dashboard can read
   it without a backend.
 

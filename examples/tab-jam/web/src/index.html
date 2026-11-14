@@ -35,6 +35,16 @@
   </section>
 
   <section class="grid" id="band" hidden></section>
+  <div class="signal-legend" id="signal-legend" hidden>
+    <span>Spikes between cards:</span>
+    <span><i style="background:var(--drums)"></i>tempo and bar clock, from the Drummer</span>
+    <span><i style="background:var(--bass)"></i>root note, from the Bassist</span>
+    <span><i style="background:var(--accent)"></i>your cue</span>
+    <span>back from the Orchestra Director Agent:
+      <i style="background:var(--ok)"></i>allowed
+      <i style="background:var(--warn);margin-left:8px"></i>changed
+      <i style="background:var(--bad);margin-left:8px"></i>blocked</span>
+  </div>
 
   <section class="card" id="roll-card" hidden>
     <h2>Now playing <small id="bar-label"></small></h2>

@@ -1,11 +1,13 @@
 [workspace]
 
 [package]
-name = "sound-engineer"
+name = "director-agentWOS"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
+# Rust wants lower-case library names; the package keeps the display name.
+name = "director_agentwos"
 crate-type = ["cdylib"]
 
 [dependencies]

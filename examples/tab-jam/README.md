@@ -15,7 +15,7 @@ you: "drums play a breakbeat and make the melody dark"
         └── tool-llm ───┴── Needle (cactus.wasm) ──┘
         │ tool calls
         ▼
-  sound-engineer.wasm   allow | modify | block
+  director-agentWOS.wasm   allow | modify | block
         │
         ▼
   stage.wasm            band state -> notes for each bar -> WebAudio
@@ -30,7 +30,7 @@ you: "drums play a breakbeat and make the melody dark"
   splits a cue into clauses, keeps the ones that name its instrument, asks
   Needle for a tool call for each, and drops optional arguments the cue never
   mentioned.
-- **The sound engineer is an OS control.** It clamps the tempo to 60-160 bpm,
+- **The director, `director-agentWOS`, is an OS control.** It clamps the tempo to 60-160 bpm,
   moves a bass root that is outside C minor to the nearest note of the key,
   blocks a frantic lead at 150 bpm or more, and refuses to silence the whole band.
 - **The stage** owns the band state and renders each bar as notes. The page plays
@@ -49,8 +49,9 @@ The stage has one Rust file per agent, all with the same functions
 - `stage/src/orchestra.rs`: sections added one by one.
 - `stage/src/music.rs`: notes, scales and helpers they share.
 
-The other pieces: `controls/sound-engineer` (the OS control), `web/src`
-(page, pads, synthesizer and kernel worker) and `web/test/smoke.mjs`.
+The other pieces: `controls/director-agentWOS` (the OS control), `web/src`
+(page, pads, signal spikes, synthesizer and kernel worker) and
+`web/test/smoke.mjs`.
 
 ## Touch pads
 
@@ -64,7 +65,7 @@ Each agent card has an XY pad for its two main settings:
 
 Drag on a pad, or focus it and use the arrow keys. The crosshair shows the
 values the band is using. A dashed ring shows where you asked for; the two
-differ when the sound engineer changed or blocked the call, for example when
+differ when the director changed or blocked the call, for example when
 you drag the tempo above 160.
 
 The Lead card also has five sounds to choose from: `saw`, `supersaw`, `piano`,
@@ -75,6 +76,34 @@ A pad sends the tool call straight to the kernel, without asking the model, so
 it responds while you drag. It still goes through the control chain and the
 audit log, and a text cue moves the crosshair too. The pads are described by the
 stage (`pads` in `setup`), so the page has no band-specific pad code.
+
+## The Orchestra Director Agent
+
+The director (`director-agentWOS`) has its own card at the top of the band, "Orchestra
+Director Agent". It shows the rules it enforces, how many calls it has allowed,
+changed, blocked and flagged, and its latest verdict.
+
+The rules on the card come from the control itself: the `control` interface has
+a `describe` function, and the director builds its answer from the same
+constants it uses to inspect calls.
+
+## Signals between agents
+
+Streaks of light travel between the cards when one agent's setting reaches
+another:
+
+- **Tempo and bar clock**, from the Drummer to everyone: faint on every
+  downbeat, bright when the tempo changes.
+- **Root note**, from the Bassist to the Lead and every orchestra section,
+  when the root changes and they retune.
+- **Your cue**, from the text box to each agent that took it.
+- **Inspection**, from an agent to the Orchestra Director Agent and back for every
+  tool call: the return spike is green when allowed, amber when changed and
+  red when blocked.
+
+The stage lists these links in its state (`links`: who follows whom and which
+field carries the signal), so a section you add is wired in as soon as it
+joins. Spikes are off when the system asks for reduced motion.
 
 ## Building an orchestra
 
@@ -89,7 +118,7 @@ a new `actor.wasm` instance, created while the band plays.
   changing the bass moves the whole orchestra, and each pulse is a division of
   the bar, so they all breathe on the band's clock.
 - **The OS decides who gets in.** The request to add an agent goes through the
-  sound engineer like any tool call. It allows eight sections and blocks the
+  director like any tool call. It allows eight sections and blocks the
   ninth, and it clamps a section's detune to 35 cents.
 - **Level is shared.** Sounding sections split one level budget, so a full
   orchestra is not louder than a single section.
@@ -130,8 +159,8 @@ The lead can play a recording instead of the synthesized voice. Put two files in
   recording sounds at.
 
 Each note re-pitches the recording. `web/samples/` is git-ignored, so recordings
-stay on your machine; without them the synthesized lead plays. The header shows
-"sampled lead" when a sample is in use.
+stay on your machine; without them the synthesized lead plays. When a sample is
+loaded, `sample` appears among the lead's sound buttons.
 
 ## Cues that work
 
@@ -140,10 +169,10 @@ Name the instrument and say what you want:
 - Drums: `Drums double time`, `Make the drums jazz`, `Make the drums random`,
   `Drums play a breakbeat`, `Silence the drums`
 - Bass: `Bass walking on F`, `Funky bass on D`, `Bass octaves on G`; `Bass on A`
-  shows the engineer moving the root into the key
+  shows the director moving the root into the key
 - Lead: `Make the melody dark`, `Lead goes jazz`, `Lead goes frantic`
 - Tempo: `Set the tempo to 140`, `speed to 120`; `Set the tempo to 300` shows the
-  engineer clamping it
+  director clamping it
 - Two at once: `Drums play a breakbeat and make the melody bright`
 
 Each agent card lists what that agent understands, and an ignored cue shows the

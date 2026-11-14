@@ -39,6 +39,14 @@ export function coreModuleLoader(baseUrl) {
 export function createKernel({ stage, actors, controls }) {
   const setup = JSON.parse(stage.setup("{}"));
   const agents = setup.agents;
+  /** Each control's own account of what it enforces, for a UI to show. */
+  const controlInfo = controls.map(({ name, control }) => {
+    try {
+      return { name, ...JSON.parse(control.describe()) };
+    } catch {
+      return { name, title: name, role: "", rules: [] };
+    }
+  });
 
   /** Runs the control chain on one tool call. Returns the delivered call or null. */
   function inspect(author, call) {
@@ -156,6 +164,7 @@ export function createKernel({ stage, actors, controls }) {
   return {
     setup,
     agents,
+    controls: controlInfo,
     cue,
     call,
     spawn,

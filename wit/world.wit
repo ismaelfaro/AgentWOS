@@ -53,6 +53,10 @@ interface control {
     }
 
     inspect: func(author: string, text: string, context: string) -> verdict;
+
+    /// What this control is and what it enforces, as JSON with `title`,
+    /// `role` and `rules` (a list of sentences), so a UI can show it.
+    describe: func() -> string;
 }
 
 /// A scenario owns the world: agents, rules, state and the record of what

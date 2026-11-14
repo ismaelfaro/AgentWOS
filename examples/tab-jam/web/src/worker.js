@@ -9,7 +9,7 @@ import { coreModuleLoader, createKernel, wasiImports } from "../../../../web/ker
 import { createNeedle, fetchCached } from "../../../../web/kernel/needle.js";
 import { instantiate as instantiateActor } from "../gen/actor/actor.js";
 import { instantiate as instantiateStage } from "../gen/stage/stage.js";
-import { instantiate as instantiateControl } from "../gen/sound-engineer/sound-engineer.js";
+import { instantiate as instantiateControl } from "../gen/director-agentWOS/director-agentWOS.js";
 
 const MODEL_URL = "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact";
 const CACHE = "tab-jam-v1";
@@ -28,7 +28,7 @@ async function init() {
   const wasm = (name) => coreModuleLoader(new URL(`wasm/${name}/`, base));
 
   const stage = (await instantiateStage(wasm("stage"), wasiImports(shim))).stage;
-  const control = (await instantiateControl(wasm("sound-engineer"), wasiImports(shim))).control;
+  const control = (await instantiateControl(wasm("director-agentWOS"), wasiImports(shim))).control;
   const agentCount = JSON.parse(stage.setup("{}")).agents.length;
   // One actor instance per agent: separate memory, same tool-llm service.
   makeActor = async () =>
@@ -36,10 +36,11 @@ async function init() {
   const actors = [];
   for (let i = 0; i < agentCount; i++) actors.push(await makeActor());
 
-  kernel = createKernel({ stage, actors, controls: [{ name: "sound-engineer", control }] });
+  kernel = createKernel({ stage, actors, controls: [{ name: "director-agentWOS", control }] });
   postMessage({
     type: "ready",
     setup: kernel.setup,
+    controls: kernel.controls,
     state: kernel.state(),
     briefs: kernel.briefs(),
     modelBytes: modelBytes.length,

@@ -13,8 +13,8 @@ pub const SUGGESTIONS: [&str; 5] = [
     "Make the drums jazz",
     "Make the drums random",
 ];
-/// Listed after the other agents' suggestions: a fast tempo makes the sound
-/// engineer refuse a frantic lead, so trying these last keeps the list usable in order.
+/// Listed after the other agents' suggestions: a fast tempo makes the
+/// director refuse a frantic lead, so trying these last keeps the list usable in order.
 pub const TEMPO_SUGGESTIONS: [&str; 2] = ["Set the tempo to 140", "Set the tempo to 300"];
 
 const STYLES: [&str; 7] = ["four_on_floor", "half_time", "double_time", "breakbeat", "jazz", "random", "silent"];

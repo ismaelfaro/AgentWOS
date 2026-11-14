@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 pub const STEPS_PER_BAR: u32 = 16;
 pub const KEY: &str = "C minor";
 
-/// Every note name an agent accepts, as semitones above C. The sound engineer
+/// Every note name an agent accepts, as semitones above C. The director
 /// control decides whether a note fits the key; the stage only needs a pitch.
 pub const NOTES: [(&str, u8); 17] = [
     ("C", 0), ("C#", 1), ("Db", 1), ("D", 2), ("D#", 3), ("Eb", 3), ("E", 4), ("F", 5), ("F#", 6),
