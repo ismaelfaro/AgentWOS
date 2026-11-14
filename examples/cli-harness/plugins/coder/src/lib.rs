@@ -42,9 +42,11 @@ fn message(role: &str, content: impl Into<String>) -> Message {
     Message { role: role.into(), content: content.into() }
 }
 
-fn json_object(reply: &str) -> Option<Value> {
-    let (start, end) = (reply.find('{')?, reply.rfind('}')?);
-    serde_json::from_str(reply.get(start..=end)?).ok()
+/// Every JSON object in the reply, in order. A small model often sends several
+/// steps at once (write, then run) or wraps them in a code fence.
+fn json_objects(reply: &str) -> Vec<Value> {
+    let Some(start) = reply.find('{') else { return Vec::new() };
+    serde_json::Deserializer::from_str(&reply[start..]).into_iter().map_while(Result::ok).collect()
 }
 
 /// A step's result as it appears in the trace: indented and cut short.
@@ -88,19 +90,24 @@ impl Guest for Component {
         for _ in 0..MAX_STEPS {
             // An empty model name means the harness's own model.
             let reply = llm::complete(&messages, "")?;
-            let step = json_object(&reply).unwrap_or(Value::Null);
-            if let Some(done) = step.get("done").and_then(Value::as_str) {
-                return Ok(trace + done);
+            let mut steps = json_objects(&reply);
+            if steps.is_empty() {
+                steps.push(Value::Null);
             }
-            let result = match apply(&step) {
-                Ok((label, result)) => {
-                    trace += &format!("{label}\n{}\n", indent(&result));
-                    result
+            let mut results = String::new();
+            for step in &steps {
+                if let Some(done) = step.get("done").and_then(Value::as_str) {
+                    return Ok(trace + done);
                 }
-                Err(problem) => format!("error: {problem}"),
-            };
+                let (label, result) = match apply(step) {
+                    Ok(applied) => applied,
+                    Err(problem) => ("error".to_string(), problem),
+                };
+                trace += &format!("{label}\n{}\n", indent(&result));
+                results += &format!("{label}:\n{result}\n");
+            }
             messages.push(message("assistant", reply));
-            messages.push(message("user", format!("Result:\n{result}")));
+            messages.push(message("user", format!("Result:\n{results}")));
         }
         Ok(trace + &format!("Stopped after {MAX_STEPS} steps without finishing."))
     }

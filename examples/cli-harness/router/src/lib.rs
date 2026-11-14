@@ -61,9 +61,11 @@ fn help() -> String {
 }
 
 /// The first JSON object in a model reply, which may come wrapped in prose or a code fence.
+/// The first JSON object in the reply. A model may wrap it in prose or a code
+/// fence, or add more objects after it; only the first is acted on.
 fn json_object(reply: &str) -> Option<Value> {
-    let (start, end) = (reply.find('{')?, reply.rfind('}')?);
-    serde_json::from_str(reply.get(start..=end)?).ok()
+    let json = &reply[reply.find('{')?..];
+    serde_json::Deserializer::from_str(json).into_iter().next()?.ok()
 }
 
 fn indent(text: &str) -> String {
