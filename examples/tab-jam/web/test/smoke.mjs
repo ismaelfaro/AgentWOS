@@ -75,7 +75,7 @@ check("speed to 120", r.state.tempo === 120);
 r = run("bass octaves G");
 check("bass octaves on G", r.state.bass_root === "G" && r.state.bass_movement === "octaves");
 r = run("lead goes jazz");
-check("lead jazzy", r.state.lead === "jazzy");
+check("lead jazz", r.state.lead === "jazz");
 r = run('drums double time"');
 check("stray quote is ignored", r.state.drums === "double_time");
 
@@ -120,7 +120,17 @@ check("randomness 100 changes every bar", leadOf(3) !== leadOf(4) && leadOf(4) !
 r = run("Set the lead randomness to 40");
 check("text cue sets lead randomness", r.state.lead_randomness === 40, `randomness=${r.state.lead_randomness}`);
 r = run("Make the melody dark");
-check("mood cue still works with two lead tools", r.state.lead === "dark");
+check("mood cue still works alongside the other lead tools", r.state.lead === "dark");
+r = run("Lead sound bell");
+check("text cue picks the lead sound", r.state.lead_sound === "bell", `sound=${r.state.lead_sound}`);
+check("bars carry the lead sound", kernel.render(0).lead_sound === "bell");
+p = kernel.call(2, { name: "set_lead_sound", arguments: { instrument: "supersaw" } }, "pad");
+check("choice sets the lead sound", p.state.lead_sound === "supersaw");
+check("stage offers five lead sounds", kernel.setup.pads[2].choice.values.length === 5);
+for (const sound of kernel.setup.pads[2].choice.values) {
+  r = run(`Lead sound ${sound}`);
+  check(`cue picks lead sound ${sound}`, r.state.lead_sound === sound, `sound=${r.state.lead_sound}`);
+}
 
 console.log(`\n${failed ? failed + " FAILED" : "all checks passed"}`);
 process.exit(failed ? 1 : 0);

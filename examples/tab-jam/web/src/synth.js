@@ -169,37 +169,117 @@ export function createSynth(ctx) {
     noiseBurst(t, t + 0.04, "bandpass", 700, 1.2).connect(voice(t, v * 0.1, 0.001, 0.025, { out: bassBus }));
   }
 
-  // Synth lead matched to a reference recording: a single saw with a slightly
-  // reinforced fundamental, a fixed gentle low-pass, immediate attack and a
-  // level that holds for the whole note. No detune, vibrato, sweep or glide.
-  function synthLead(t, v, midi, len) {
-    const hold = Math.max(0.08, len * 0.98);
-    const release = 0.09;
-    const end = t + hold + release + 0.02;
-    const freq = hz(midi);
-
-    const tone = ctx.createBiquadFilter();
-    tone.type = "lowpass";
-    tone.frequency.value = 3400;
-    tone.Q.value = 0.6;
-    osc("sawtooth", freq, t, end).connect(tone);
-    const fundamental = ctx.createGain();
-    fundamental.gain.value = 0.17;
-    osc("sine", freq, t, end).connect(fundamental).connect(tone);
-
+  // ---- lead voices -------------------------------------------------------
+  // Every lead voice ends in this: level, pan and effect sends for one note.
+  function leadOut(t, peak, attack, hold, release, { reverbSend = 0.2, delaySend = 0, sustain = true } = {}) {
     const gain = ctx.createGain();
-    const peak = v * 0.2;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(peak, t + 0.004);
-    gain.gain.setValueAtTime(peak, t + hold);
+    gain.gain.exponentialRampToValueAtTime(peak, t + attack);
+    if (sustain) gain.gain.setValueAtTime(peak, t + hold);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + hold + release);
     const panner = ctx.createStereoPanner();
     panner.pan.value = -0.15;
-    tone.connect(gain).connect(panner).connect(master);
-    const send = ctx.createGain();
-    send.gain.value = 0.18;
-    panner.connect(send).connect(reverb);
+    gain.connect(panner).connect(master);
+    for (const [amount, target] of [[reverbSend, reverb], [delaySend, delay]]) {
+      if (amount > 0) {
+        const send = ctx.createGain();
+        send.gain.value = amount;
+        panner.connect(send).connect(target);
+      }
+    }
+    return gain;
   }
+
+  const leadVoices = {
+    // Single saw with a reinforced fundamental and a fixed gentle low-pass,
+    // held at one level. Matched to a reference recording.
+    saw(t, v, freq, dur) {
+      const hold = Math.max(0.08, dur * 0.98), end = t + hold + 0.11;
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 3400;
+      tone.Q.value = 0.6;
+      osc("sawtooth", freq, t, end).connect(tone);
+      const fundamental = ctx.createGain();
+      fundamental.gain.value = 0.17;
+      osc("sine", freq, t, end).connect(fundamental).connect(tone);
+      tone.connect(leadOut(t, v * 0.2, 0.004, hold, 0.09, { reverbSend: 0.18 }));
+    },
+
+    // Three detuned saws over a square sub, a resonant filter that opens on the
+    // attack, a glide from the previous note and vibrato on held notes.
+    supersaw(t, v, freq, dur) {
+      const hold = Math.max(0.1, dur * 0.95), end = t + hold + 0.3;
+      const from = lastLeadFreq ?? freq;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.Q.value = 7;
+      filter.frequency.setValueAtTime(700, t);
+      filter.frequency.exponentialRampToValueAtTime(1800 + 3200 * v, t + 0.03);
+      filter.frequency.exponentialRampToValueAtTime(900, t + Math.max(hold, 0.12));
+      const vibrato = osc("sine", 5.8, t, end);
+      const depth = ctx.createGain();
+      depth.gain.setValueAtTime(0, t + Math.min(hold, 0.18));
+      depth.gain.linearRampToValueAtTime(hold > 0.3 ? 9 : 0, t + Math.min(hold, 0.45));
+      vibrato.connect(depth);
+      const mix = ctx.createGain();
+      mix.gain.value = 0.3;
+      mix.connect(filter);
+      for (const [type, detune, level] of [["sawtooth", -12, 1], ["sawtooth", 0, 1], ["sawtooth", 12, 1], ["square", -1200, 0.5]]) {
+        const o = osc(type, from, t, end, detune);
+        o.frequency.exponentialRampToValueAtTime(freq, t + 0.035);
+        depth.connect(o.detune);
+        const g = ctx.createGain();
+        g.gain.value = level;
+        o.connect(g).connect(mix);
+      }
+      filter.connect(leadOut(t, v * 0.52, 0.006, hold, 0.2, { reverbSend: 0.3, delaySend: 0.3, sustain: false }));
+    },
+
+    // Electric piano: FM tine with a bell at the attack that mellows as it decays.
+    piano(t, v, freq, dur) {
+      const ring = Math.min(2.4, Math.max(0.5, dur * 2.2)), end = t + ring + 0.3;
+      const body = ctx.createBiquadFilter();
+      body.type = "lowpass";
+      body.frequency.value = 4200;
+      fm(freq, 1, 0.9 + 1.4 * v, ring * 0.6, t, end).connect(body);
+      const bell = ctx.createGain();
+      bell.gain.setValueAtTime(0.25 * v, t);
+      bell.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+      fm(freq, 14, 0.5, 0.06, t, t + 0.2).connect(bell).connect(body);
+      body.connect(leadOut(t, v * 0.3, 0.003, 0, ring, { reverbSend: 0.3, delaySend: 0.06, sustain: false }));
+    },
+
+    // Hollow square wave with a quick blip of pitch at the start, like an
+    // old game console. Dry and exact.
+    square(t, v, freq, dur) {
+      const hold = Math.max(0.06, dur * 0.85), end = t + hold + 0.06;
+      const o = osc("square", freq * 2, t, end);
+      o.frequency.exponentialRampToValueAtTime(freq, t + 0.012);
+      const vibrato = osc("square", 7, t, end);
+      const depth = ctx.createGain();
+      depth.gain.setValueAtTime(0, t + Math.min(hold, 0.25));
+      depth.gain.setValueAtTime(hold > 0.35 ? 12 : 0, t + Math.min(hold, 0.26));
+      vibrato.connect(depth).connect(o.detune);
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 5200;
+      o.connect(tone).connect(leadOut(t, v * 0.17, 0.002, hold, 0.04, { reverbSend: 0.05, delaySend: 0.18 }));
+    },
+
+    // Bell: FM with a non-harmonic ratio, so the overtones clang, and a long ring.
+    bell(t, v, freq, dur) {
+      const ring = Math.min(3, Math.max(0.9, dur * 3)), end = t + ring + 0.3;
+      const out = leadOut(t, v * 0.26, 0.002, 0, ring, { reverbSend: 0.5, delaySend: 0.12, sustain: false });
+      fm(freq, 3.5, 2.2 * v + 0.8, ring * 0.35, t, end).connect(out);
+      const shimmer = ctx.createGain();
+      shimmer.gain.setValueAtTime(0.3, t);
+      shimmer.gain.exponentialRampToValueAtTime(0.001, t + ring * 0.25);
+      fm(freq * 2, 5.4, 1.5, 0.2, t, end).connect(shimmer).connect(out);
+    },
+  };
+  let lastLeadFreq = null;
+  let leadSound = "saw";
 
   // Optional sampled lead: one looped recording, re-pitched per note.
   let sample = null;
@@ -228,12 +308,20 @@ export function createSynth(ctx) {
   }
 
   function lead(t, v, midi, len) {
-    (sample ? sampledLead : synthLead)(t, v, midi, len);
+    if (leadSound === "sample" && sample) return sampledLead(t, v, midi, len);
+    const freq = hz(midi);
+    (leadVoices[leadSound] ?? leadVoices.saw)(t, v, freq, len);
+    lastLeadFreq = freq;
   }
 
   return {
+    leadSounds: Object.keys(leadVoices),
+    /** One of `leadSounds`, or "sample" once a recording is loaded. */
+    setLeadSound(name) {
+      leadSound = name;
+    },
     /**
-     * Uses a recording as the lead instead of the synthesized voice.
+     * Makes a recording available as the "sample" lead sound.
      * `midi` is the pitch the recording sounds at.
      */
     setLeadSample(buffer, midi) {

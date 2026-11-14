@@ -1,4 +1,4 @@
-# Tab Jam
+# Agentic Tab Jam
 
 A band of WASM agents that you conduct in plain English. Everything runs in one
 browser tab: the agents, the OS control, the music and a 35 MB language model.
@@ -51,6 +51,10 @@ Drag on a pad, or focus it and use the arrow keys. The crosshair shows the
 values the band is using. A dashed ring shows where you asked for; the two
 differ when the sound engineer changed or blocked the call, for example when
 you drag the tempo above 160.
+
+The Lead card also has five sounds to choose from: `saw`, `supersaw`, `piano`,
+`square` and `bell`. A cue such as `Lead sound bell` picks one too. With a local
+recording loaded (see below), `sample` appears as a sixth option.
 
 A pad sends the tool call straight to the kernel, without asking the model, so
 it responds while you drag. It still goes through the control chain and the

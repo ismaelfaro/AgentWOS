@@ -12,7 +12,8 @@ struct Component;
 
 const DRUM_STYLES: [&str; 7] = ["four_on_floor", "half_time", "double_time", "breakbeat", "jazz", "random", "silent"];
 const BASS_MOVES: [&str; 5] = ["steady", "walking", "octaves", "funky", "silent"];
-const LEAD_MOODS: [&str; 6] = ["calm", "bright", "dark", "frantic", "jazzy", "silent"];
+const LEAD_MOODS: [&str; 6] = ["calm", "bright", "dark", "frantic", "jazz", "silent"];
+const LEAD_SOUNDS: [&str; 5] = ["saw", "supersaw", "piano", "square", "bell"];
 /// Every note name the bass accepts, as semitones above C. The sound engineer
 /// control decides whether a root fits the key; the stage only needs a pitch.
 const NOTES: [(&str, u8); 17] = [
@@ -32,6 +33,8 @@ struct Band {
     lead: &'static str,
     /// 0 repeats one phrase every bar; 100 picks every note afresh.
     lead_randomness: u32,
+    /// Which voice the page's synthesizer uses for the lead.
+    lead_sound: &'static str,
 }
 
 thread_local! {
@@ -42,6 +45,7 @@ thread_local! {
         bass_move: "steady",
         lead: "calm",
         lead_randomness: 30,
+        lead_sound: "saw",
     }) };
 }
 
@@ -163,7 +167,7 @@ fn lead(mood: &str, randomness: u32, root: u8, bar: u32, out: &mut Vec<Value>) {
         "bright" => (72, every(2), 65, 2, &PENTATONIC),
         "dark" => (48, every(8), 100, 8, &PENTATONIC),
         "frantic" => (72, every(1), 80, 1, &PENTATONIC),
-        "jazzy" => (60, vec![0, 3, 4, 7, 8, 11, 12, 15], 65, 2, &BLUES),
+        "jazz" => (60, vec![0, 3, 4, 7, 8, 11, 12, 15], 65, 2, &BLUES),
         _ => return,
     };
     // Two streams: `phrase` is the same every bar, `wild` changes with the bar.
@@ -230,6 +234,7 @@ impl Guest for Component {
                 "Set the tempo to 300",
                 "Silence the drums and make the melody bright",
                 "Set the lead randomness to 90",
+                "Lead sound piano",
             ],
             // Touch pads for the UI: two settings per agent, each mapped to one
             // tool argument and to the state field that shows its current value.
@@ -242,7 +247,8 @@ impl Guest for Component {
                   "y": { "label": "movement", "tool": "set_bass_line", "arg": "movement", "state": "bass_movement", "values": BASS_MOVES } },
                 { "agent": 2,
                   "x": { "label": "mood", "tool": "set_lead_mood", "arg": "mood", "state": "lead", "values": LEAD_MOODS },
-                  "y": { "label": "randomness", "tool": "set_lead_randomness", "arg": "percent", "state": "lead_randomness", "min": 0, "max": 100, "step": 5 } },
+                  "y": { "label": "randomness", "tool": "set_lead_randomness", "arg": "percent", "state": "lead_randomness", "min": 0, "max": 100, "step": 5 },
+                  "choice": { "label": "sound", "tool": "set_lead_sound", "arg": "instrument", "state": "lead_sound", "values": LEAD_SOUNDS } },
             ],
         })
         .to_string()
@@ -278,6 +284,10 @@ impl Guest for Component {
                         json!({ "mood": { "type": "string", "enum": LEAD_MOODS } }), &["mood"]),
                     function("set_lead_randomness", "Set how random or unpredictable the lead melody is, as a percent from 0 to 100.",
                         json!({ "percent": { "type": "integer" } }), &["percent"]),
+                    // This wording is deliberate: with "sound" in the description or as the
+                    // argument name, the model stops answering mood cues such as "lead goes jazz".
+                    function("set_lead_sound", "Switch the lead to another instrument.",
+                        json!({ "instrument": { "type": "string", "enum": LEAD_SOUNDS } }), &["instrument"]),
                 ],
             }),
         }
@@ -332,6 +342,10 @@ impl Guest for Component {
                     b.lead_randomness = percent as u32;
                     Ok(outcome(changed, format!("lead randomness {percent}%")))
                 }
+                (2, "set_lead_sound") => {
+                    let changed = set(&mut b.lead_sound, pick(&LEAD_SOUNDS, &args["instrument"], "instrument")?);
+                    Ok(outcome(changed, format!("lead sound {}", b.lead_sound)))
+                }
                 _ => Err(format!("agent {agent} has no tool named '{name}'")),
             }
         })
@@ -345,7 +359,7 @@ impl Guest for Component {
             drums(b.drums, tick, &mut notes);
             bass(root, b.bass_move, &mut notes);
             lead(b.lead, b.lead_randomness, root, tick, &mut notes);
-            json!({ "bar": tick, "tempo": b.tempo, "notes": notes }).to_string()
+            json!({ "bar": tick, "tempo": b.tempo, "lead_sound": b.lead_sound, "notes": notes }).to_string()
         })
     }
 
@@ -359,6 +373,7 @@ impl Guest for Component {
                 "bass_movement": b.bass_move,
                 "lead": b.lead,
                 "lead_randomness": b.lead_randomness,
+                "lead_sound": b.lead_sound,
                 "key": "C minor",
             })
             .to_string()

@@ -77,3 +77,5 @@ canvas { width:100%; height:auto; display:block; border-radius:6px; }
 .pad-x.cells span { flex:1; text-align:center; line-height:1.15; overflow-wrap:anywhere; padding:0 1px; }
 .pad-corner { font-size:9px; align-self:start; white-space:nowrap; }
 @media (prefers-reduced-motion: reduce) { .cross, .pad-dot { transition:none; } }
+.choices { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:10px; }
+.choices .chip.on { border-color:var(--c); color:var(--c); font-weight:600; }

@@ -15,6 +15,7 @@ const MAX_LOG_ENTRIES = 40;
 let agents = [];
 let briefs = [];
 let pads = [];
+let choices = [];
 let state = null;
 let cueId = 0;
 
@@ -57,7 +58,9 @@ async function loadLeadSample() {
     const data = await (await fetch(new URL("samples/" + meta.file, import.meta.url))).arrayBuffer();
     audio.synth.setLeadSample(await audio.ctx.decodeAudioData(data), meta.midi);
     audio.leadSample = meta.file;
+    audio.useSample = true;
     showMeta();
+    renderChoices();
   } catch {
     audio.leadSample = null;
   }
@@ -70,6 +73,7 @@ function scheduleBar() {
   const step = 60 / data.tempo / 4;
   const start = audio.nextBarTime;
   audio.synth.setTempo(data.tempo);
+  audio.synth.setLeadSound(audio.useSample ? "sample" : data.lead_sound ?? "saw");
   for (const n of data.notes) audio.synth.playNote(n, start + n.step * step, step);
   audio.now = { data, start, duration: step * 16, bar: audio.bar };
   audio.last = data;
@@ -137,6 +141,40 @@ function settingOf(agent) {
 function renderBand() {
   for (const a of agents) $("setting-" + a.agent).textContent = settingOf(a.agent);
   for (const pad of pads) pad.show(state);
+  renderChoices();
+}
+
+/**
+ * Buttons for a setting with a few named options, such as the lead sound.
+ * A local recording, when loaded, appears as one more lead sound; it is a
+ * setting of this page only, so the stage is not told about it.
+ */
+function renderChoices() {
+  for (const { desc, agentIndex, box } of choices) {
+    const isLeadSound = desc.state === "lead_sound";
+    const usingSample = isLeadSound && audio.useSample;
+    const pick = (value) => {
+      audio.useSample = false;
+      worker.postMessage({ type: "call", id: ++cueId, agent: agentIndex, call: { name: desc.tool, arguments: { [desc.arg]: value } } });
+      renderChoices();
+    };
+    const buttons = desc.values.map((v) => el("button", {
+      class: "chip" + (!usingSample && state?.[desc.state] === v ? " on" : ""),
+      type: "button",
+      "aria-pressed": String(!usingSample && state?.[desc.state] === v),
+      onclick: () => pick(v),
+    }, v.replaceAll("_", " ")));
+    if (isLeadSound && audio.leadSample) {
+      buttons.push(el("button", {
+        class: "chip" + (usingSample ? " on" : ""),
+        type: "button",
+        "aria-pressed": String(usingSample),
+        title: "your local recording",
+        onclick: () => { audio.useSample = true; renderChoices(); },
+      }, "sample"));
+    }
+    box.replaceChildren(el("span", { class: "muted" }, desc.label), ...buttons);
+  }
 }
 
 /** Turns what the user asked for on a pad into tool calls, one per tool. */
@@ -161,19 +199,23 @@ function optionsOf(index) {
 
 function buildBand(padDescriptions) {
   pads = [];
+  choices = [];
   $("band").replaceChildren(...agents.map((a, i) => {
     const desc = padDescriptions.find((p) => p.agent === i);
     const pad = desc && createPad(desc, a.agent, (change) => {
       for (const call of padCalls(desc, change)) worker.postMessage({ type: "call", id: ++cueId, agent: i, call });
     });
     if (pad) pads.push(pad);
+    const box = desc?.choice && el("div", { class: "choices" });
+    if (box) choices.push({ desc: desc.choice, agentIndex: i, box });
     return el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--accent"})` }, [
-      el("h3", {}, a.agent),
+      el("h3", {}, "Agent " + a.agent),
       el("div", { class: "muted" }, a.role),
       el("div", { class: "setting", id: "setting-" + a.agent }),
       el("div", { class: "last", id: "last-" + a.agent }, "touch the pad or send a cue"),
       el("div", { class: "meter", title: "model confidence of the last cue" }, el("div", { id: "meter-" + a.agent })),
       pad ? pad.element : el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
+      box || null,
     ]);
   }));
   renderBand();
