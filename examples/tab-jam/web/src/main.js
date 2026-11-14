@@ -42,12 +42,16 @@ function el(tag, attrs = {}, children = []) {
 }
 
 const NEEDLE_URL = "https://cactuscompute.com/needle";
+const REPO_URL = "https://github.com/ismaelfaro/AgentWOS";
 
 function showMeta() {
   if (!audio.metaBase) return;
+  const link = (href, text) => el("a", { href, target: "_blank", rel: "noopener" }, text);
   $("meta").replaceChildren(
     audio.metaBase + " - Thanks to ",
-    el("a", { href: NEEDLE_URL, target: "_blank", rel: "noopener" }, audio.modelLabel),
+    link(NEEDLE_URL, audio.modelLabel),
+    " - powered by ",
+    link(REPO_URL, "AgentWOS"),
   );
 }
 
