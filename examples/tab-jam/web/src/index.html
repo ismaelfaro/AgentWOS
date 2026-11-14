@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tab Jam</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Tab Jam</h1>
+  <span class="pill" id="status">not started</span>
+  <span class="muted" id="meta">A band of WASM agents with a 29 MB brain. Everything runs in this tab.</span>
+</header>
+
+<main>
+  <section class="card" id="start-card">
+    <h2>Start the band</h2>
+    <p class="muted">Downloads the Needle model (35 MB, once; cached for offline use) and starts audio.
+      No server is involved after that.</p>
+    <button class="btn primary" id="start">Start</button>
+    <div class="progress" id="progress" hidden><div id="progress-bar"></div></div>
+    <p class="muted" id="progress-text"></p>
+  </section>
+
+  <section class="card" id="conductor" hidden>
+    <h2>Conduct <small>plain English; one agent per instrument decides what to do</small></h2>
+    <form id="cue-form" class="row">
+      <input id="cue" type="text" autocomplete="off" placeholder="e.g. make the drums half time and the melody dark" aria-label="cue for the band">
+      <button class="btn primary" id="send">Send</button>
+      <button class="btn" type="button" id="toggle">Pause</button>
+    </form>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section class="grid" id="band" hidden></section>
+
+  <section class="card" id="roll-card" hidden>
+    <h2>Now playing <small id="bar-label"></small></h2>
+    <canvas id="roll" width="960" height="200"></canvas>
+  </section>
+
+  <section class="card" id="log-card" hidden>
+    <h2>OS audit <small>every cue, every tool call, every verdict</small></h2>
+    <div id="log"><p class="muted">Send a cue to see what each agent does with it.</p></div>
+  </section>
+</main>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

@@ -80,6 +80,42 @@ interface scenario {
     snapshot: func() -> string;
 }
 
+/// Tool-calling LLM service: maps one instruction to tool calls.
+/// `tools-json` is an array of OpenAI-style function declarations. The result
+/// is JSON with `function_calls` (array of {name, arguments}) and `confidence`.
+interface tool-llm {
+    use types.{call-error};
+
+    call: func(system: string, tools-json: string, input: string) -> result<string, call-error>;
+}
+
+/// An agent that acts only through tool calls.
+interface actor {
+    use types.{call-error};
+
+    /// brief: JSON {system, tools, aliases, min_confidence?} from the stage.
+    /// Returns a JSON array of attempts: {clause, confidence, calls, ignored}.
+    act: func(brief: string, input: string) -> result<string, call-error>;
+}
+
+/// An interactive scenario: agents change shared state through tool calls,
+/// and the stage renders that state tick by tick.
+interface stage {
+    /// Returns JSON with `agents` ({agent, role}) and any extra fields for the UI.
+    setup: func(config: string) -> string;
+    /// JSON brief for the agent at index `agent` (see `actor.act`).
+    brief: func(agent: u32) -> string;
+    /// JSON context passed to every control.
+    context: func() -> string;
+    /// Applies one tool call ({name, arguments} JSON). Returns a short
+    /// description, or an error when the call is invalid.
+    apply: func(agent: u32, call: string) -> result<string, string>;
+    /// Scenario-defined JSON output for one tick (for example, the notes of a bar).
+    render: func(tick: u32) -> string;
+    /// Current state as JSON.
+    state: func() -> string;
+}
+
 world agent-module {
     import llm;
     import tool;
@@ -100,4 +136,13 @@ world control-module {
 
 world scenario-module {
     export scenario;
+}
+
+world actor-module {
+    import tool-llm;
+    export actor;
+}
+
+world stage-module {
+    export stage;
 }

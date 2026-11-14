@@ -3,7 +3,7 @@
 An experimental agent operating system on WASM/WASI. Agents, tools, the LLM
 client, OS control modules and scenarios are WASM components. A Rust/Wasmtime
 host (Component Model) instantiates them, mediates every call between them and
-records what happened.
+records what happened. A second kernel runs the same components in the browser.
 
 ## Architecture
 
@@ -46,7 +46,8 @@ Principles:
 
 ## Layout
 
-- `wit/world.wit`: interfaces `types`, `tool`, `llm`, `agent`, `control`, `scenario`.
+- `wit/world.wit`: interfaces `types`, `tool`, `llm`, `agent`, `control`, `scenario`,
+  and for tool-calling agents `tool-llm`, `actor`, `stage`.
 - `host/src/runtime.rs`: WASI, bindings, component loading and instantiation.
 - `host/src/control.rs`: control chain.
 - `host/src/runner.rs`: scenario runner and log writer.
@@ -55,6 +56,12 @@ Principles:
 - `modules/llm-call`: OpenAI-compatible client. `local/<id>` goes to LM Studio
   (`localhost:1234`); `openrouter/<id>` goes to OpenRouter (`OPENROUTER_API_KEY`).
 - `modules/tool-echo`: example tool.
+- `modules/actor`: agent that acts only through tool calls. Splits an instruction
+  into clauses, keeps the ones addressed to it and asks a `tool-llm` for calls.
+- `web/kernel/`: browser kernel. Runs components transpiled with `jco`, applies
+  the control chain, and provides Needle (a 35 MB tool-calling model) as `tool-llm`.
+- `examples/tab-jam/`: browser example: a band of agents you conduct in plain
+  English, fully in one tab. See its [README](examples/tab-jam/README.md).
 - `examples/mars-colony/`: example scenario: a colony on Mars. Everything it needs
   lives here:
   - `scenario/`: the scenario component.
@@ -85,6 +92,19 @@ cargo build --release
 
 examples/mars-colony/build.sh
 ```
+
+## Two kernels
+
+| | Native host (`host/`) | Browser kernel (`web/kernel/`) |
+|---|---|---|
+| Runtime | Wasmtime | The browser's WebAssembly, components transpiled with `jco` |
+| LLM | `llm-call` over HTTP (LM Studio, OpenRouter) | Needle, in-tab |
+| Drives | `scenario` (turn-based days) | `stage` (interactive, tool calls) |
+| Example | `examples/mars-colony` | `examples/tab-jam` |
+
+Both use the same `wit/world.wit` and the same `control` interface. The native
+host does not run `stage` scenarios yet, and the browser kernel does not run
+`scenario` ones.
 
 ## Run a scenario
 
@@ -177,9 +197,11 @@ latest turn.
 
 1. **Dynamic registry**: `attach(uri, interface)` so an agent can load a tool at
    runtime; the host validates the interface, instantiates and caches it.
-2. **Generic dashboard**: render any scenario's log, leaving scenario-specific
+2. **One kernel surface**: run `stage` scenarios on the native host and `scenario`
+   ones in the browser.
+3. **Generic dashboard**: render any scenario's log, leaving scenario-specific
    views to scenarios.
-3. **LLM-backed controls**: a control that uses its own `llm-call` to judge
+4. **LLM-backed controls**: a control that uses its own `llm-call` to judge
    consistency across agents.
-4. **Evolver**: generate code, compile to wasm, evaluate in a sandbox and promote
+5. **Evolver**: generate code, compile to wasm, evaluate in a sandbox and promote
    versions in the registry, with rollback.
