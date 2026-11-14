@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 
 use anyhow::{anyhow, Result};
-use wasmtime::component::{Component, Linker, ResourceTable};
+use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Engine, Store};
-use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiView};
-use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpCtxView, WasiHttpView};
 
 // One bindgen! per world, each in its own module so the generated types
 // (Message, CallError...) do not collide. All read the same canonical WIT.
@@ -50,20 +50,18 @@ impl WasiState {
 }
 
 impl WasiView for WasiState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.ctx
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView { ctx: &mut self.ctx, table: &mut self.table }
     }
 }
 
 impl WasiHttpView for WasiState {
-    fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.http
-    }
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+    fn http(&mut self) -> WasiHttpCtxView<'_> {
+        WasiHttpCtxView {
+            ctx: &mut self.http,
+            table: &mut self.table,
+            hooks: wasmtime_wasi_http::default_hooks(),
+        }
     }
 }
 
@@ -127,15 +125,12 @@ pub struct HostState {
 }
 
 impl WasiView for HostState {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.wasi.table
-    }
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.wasi.ctx
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        self.wasi.ctx()
     }
 }
 
-fn trap(e: anyhow::Error) -> at::CallError {
+fn trap(e: wasmtime::Error) -> at::CallError {
     at::CallError::ExecutionFailed(e.to_string())
 }
 
@@ -199,7 +194,7 @@ impl AgentInstance {
     pub fn spawn(c: &Components) -> Result<Self> {
         let mut tool_store = Store::new(&c.engine, WasiState::new(&[]));
         let mut tool_linker = Linker::<WasiState>::new(&c.engine);
-        wasmtime_wasi::add_to_linker_sync(&mut tool_linker)?;
+        wasmtime_wasi::p2::add_to_linker_sync(&mut tool_linker)?;
         let tool = tool_world::ToolModule::instantiate(&mut tool_store, &c.tool, &tool_linker)?;
 
         // Only the llm receives network access and the API key.
@@ -210,8 +205,8 @@ impl AgentInstance {
             .collect();
         let mut llm_store = Store::new(&c.engine, WasiState::new(&llm_env));
         let mut llm_linker = Linker::<WasiState>::new(&c.engine);
-        wasmtime_wasi::add_to_linker_sync(&mut llm_linker)?;
-        wasmtime_wasi_http::add_only_http_to_linker_sync(&mut llm_linker)?;
+        wasmtime_wasi::p2::add_to_linker_sync(&mut llm_linker)?;
+        wasmtime_wasi_http::p2::add_only_http_to_linker_sync(&mut llm_linker)?;
         let llm = llm_world::LlmModule::instantiate(&mut llm_store, &c.llm, &llm_linker)?;
 
         let state = HostState {
@@ -221,8 +216,8 @@ impl AgentInstance {
         };
         let mut store = Store::new(&c.engine, state);
         let mut linker = Linker::<HostState>::new(&c.engine);
-        wasmtime_wasi::add_to_linker_sync(&mut linker)?;
-        agent_world::AgentModule::add_to_linker(&mut linker, |s| s)?;
+        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+        agent_world::AgentModule::add_to_linker::<_, HasSelf<HostState>>(&mut linker, |s| s)?;
         let bindings = agent_world::AgentModule::instantiate(&mut store, &c.agent, &linker)?;
         Ok(Self { store, bindings })
     }
@@ -253,19 +248,19 @@ impl ScenarioInstance {
     pub fn spawn(c: &Components, component: &Component) -> Result<Self> {
         let mut store = Store::new(&c.engine, WasiState::new(&[]));
         let mut linker = Linker::<WasiState>::new(&c.engine);
-        wasmtime_wasi::add_to_linker_sync(&mut linker)?;
+        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         let bindings = scenario_world::ScenarioModule::instantiate(&mut store, component, &linker)?;
         Ok(Self { store, bindings })
     }
 
     pub fn setup(&mut self, config: &str) -> Result<String> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_setup(&mut self.store, config)
+        Ok(api.call_setup(&mut self.store, config)?)
     }
 
     pub fn begin_day(&mut self, day: u32, total: u32) -> Result<String> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_begin_day(&mut self.store, day, total)
+        Ok(api.call_begin_day(&mut self.store, day, total)?)
     }
 
     pub fn turn_messages(&mut self, agent: u32) -> Result<Vec<(String, String)>> {
@@ -276,12 +271,12 @@ impl ScenarioInstance {
 
     pub fn action_of(&mut self, agent: u32, reply: &str) -> Result<String> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_action_of(&mut self.store, agent, reply)
+        Ok(api.call_action_of(&mut self.store, agent, reply)?)
     }
 
     pub fn context(&mut self) -> Result<String> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_context(&mut self.store)
+        Ok(api.call_context(&mut self.store)?)
     }
 
     pub fn record_turn(
@@ -293,16 +288,16 @@ impl ScenarioInstance {
         error: Option<&str>,
     ) -> Result<()> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_record_turn(&mut self.store, agent, delivered, controls, latency_ms, error)
+        Ok(api.call_record_turn(&mut self.store, agent, delivered, controls, latency_ms, error)?)
     }
 
     pub fn end_day(&mut self) -> Result<bool> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_end_day(&mut self.store)
+        Ok(api.call_end_day(&mut self.store)?)
     }
 
     pub fn snapshot(&mut self) -> Result<String> {
         let api = self.bindings.agentwos_core_scenario();
-        api.call_snapshot(&mut self.store)
+        Ok(api.call_snapshot(&mut self.store)?)
     }
 }
