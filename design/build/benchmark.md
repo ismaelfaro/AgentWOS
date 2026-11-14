@@ -195,6 +195,12 @@ select(profile, need):
 The selector says when it fell back to a nearer profile, and when the best
 answer is "unknown".
 
+## Router track
+
+`bench/router/` holds the task statements with their profiles and hand-written
+rewordings, and a script that runs each decision model over them. Details are in
+[Building the router](router.md#measuring-routers-the-router-track).
+
 ## Order
 
 1. `task.json`, one Python seed repository, three tasks, `grade.sh`.

@@ -201,6 +201,15 @@ In AgentWOS the selector is what a pool of model agents consults, and the table
 is kept current by the [evolution loop](evolution.md): when the Scout finds a
 new model, the benchmark is how the Evaluator judges it.
 
+## A track for routers
+
+The table is used by a [router](router.md), which decides what each piece of
+work is before looking it up. Routers are measured on the same tasks, since each
+task already carries its profile: how often a decision model names the kind of
+task correctly, how often it is confident, how often it is right when confident,
+and how long it takes. The measure that matters most is end to end: tasks solved
+with routing against the best single model without it, at equal budget.
+
 ## Phases
 
 1. Profile schema; three seed repositories and thirty tasks in the tier 1

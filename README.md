@@ -151,6 +151,8 @@ implemented yet.
   self-improving agents and what the design takes from it.
 - [Benchmark](design/benchmark.md): a plan to measure models on coding tasks and
   build a table for choosing the model of a coding agent per project.
+- [Router](design/router.md): a plan to route each piece of work to the best
+  expert, using small local decision models and the benchmark table.
 - [Roadmap](design/roadmap.md): order of work and open questions.
 
 ## Roadmap
