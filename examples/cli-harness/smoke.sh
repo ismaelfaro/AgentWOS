@@ -25,7 +25,8 @@ has() {
 is  "echo"                         "hello"                             "/echo hello"
 is  "wordcount"                    $'words: 3\ncharacters: 13\nlines: 1' "/wordcount one two three"
 has "help lists plugins"           "- coder:"                          "/help"
-has "unknown plugin is named"      "there is no plugin 'nope'"         "/nope hi"
+has "bare text goes to default"    "usage: coder"                      ""
+has "unknown plugin is named"     "there is no plugin 'nope'"         "/nope hi"
 if h --list | grep -q "llm+workspace"; then echo "ok    --list shows grants"; else echo "FAIL  --list shows grants"; failed=1; fi
 
 is  "write a one-line file"        "wrote smoke/hello.py (29 bytes)"   '/workspace write smoke/hello.py print("hello from workspace")'

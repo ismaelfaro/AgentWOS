@@ -161,9 +161,10 @@ examples/cli-harness/build.sh
 ./target/release/agentwos-host --harness examples/cli-harness/manifest.json
 ```
 
-`/<plugin> <input>` calls a plugin directly; anything else goes to the model,
-which calls plugins one after another until it can answer. The router reaches
-every plugin through its ordinary `tool` import.
+`/<plugin> <input>` calls a plugin directly. Anything else goes to the
+manifest's `default` plugin (`coder` in the example) or, without one, to the
+router's model, which calls plugins one after another until it can answer. The
+router reaches every plugin through its ordinary `tool` import.
 
 A plugin uses the `plugin-module` world and can do nothing but compute until
 the manifest grants it something: `llm` for a model, `workspace` for one folder

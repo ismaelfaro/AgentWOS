@@ -34,6 +34,9 @@ struct Manifest {
     router: String,
     llm: String,
     model: Option<String>,
+    /// Plugin that gets whatever is typed without a `/<plugin>` prefix.
+    /// Without it, that text goes to the router's model, which picks plugins.
+    default: Option<String>,
     workspace: Workspace,
     plugins: Vec<PluginSpec>,
 }
@@ -69,7 +72,13 @@ impl Manifest {
             bail!("{}: no plugins", path.display());
         }
 
+        let default = raw["default"].as_str().map(str::to_string);
+        if let Some(name) = default.as_deref().filter(|d| plugins.iter().all(|p| p.name != *d)) {
+            bail!("{}: `default` names '{name}', which is not a plugin", path.display());
+        }
+
         Ok(Self {
+            default,
             router: resolve(&text(&raw, "router")?),
             llm: resolve(&text(&raw, "llm")?),
             model: raw["model"].as_str().map(str::to_string),
@@ -207,9 +216,15 @@ fn print_plugins(manifest: &Manifest) {
     }
 }
 
-/// The router takes its model from a `model:<id> ` prefix, like `agent-core`.
-fn with_model(model: &str, text: &str) -> Vec<Message> {
-    vec![message("user", format!("model:{model} {text}"))]
+/// What the router receives. Text without a `/` goes to the default plugin
+/// when the manifest names one. The router takes its model from a
+/// `model:<id> ` prefix, like `agent-core`.
+fn request(manifest: &Manifest, model: &str, text: &str) -> Vec<Message> {
+    let text = text.trim();
+    match &manifest.default {
+        Some(plugin) if !text.starts_with('/') => vec![message("user", format!("model:{model} /{plugin} {text}"))],
+        _ => vec![message("user", format!("model:{model} {text}"))],
+    }
 }
 
 pub fn run(engine: &Engine, path: &Path, model: Option<&str>, text: Option<&str>, list: bool) -> Result<()> {
@@ -232,13 +247,14 @@ pub fn run(engine: &Engine, path: &Path, model: Option<&str>, text: Option<&str>
     )?;
 
     if let Some(text) = text {
-        println!("{}", router.ask(with_model(&model, text)).map_err(|e| anyhow!(e))?);
+        println!("{}", router.ask(request(&manifest, &model, text)).map_err(|e| anyhow!(e))?);
         return Ok(());
     }
 
     println!("AgentWOS harness, model {model}. Plugins:");
     print_plugins(&manifest);
-    println!("\n/<plugin> <input> calls a plugin. Anything else goes to the model. /help, /exit.\n");
+    let rest = manifest.default.as_deref().map_or("the model".to_string(), |d| format!("`{d}`"));
+    println!("\n/<plugin> <input> calls a plugin. Anything else goes to {rest}. /help, /exit.\n");
     let mut lines = io::stdin().lock().lines();
     loop {
         print!("> ");
@@ -249,7 +265,7 @@ pub fn run(engine: &Engine, path: &Path, model: Option<&str>, text: Option<&str>
             break;
         }
         if !line.is_empty() {
-            match router.ask(with_model(&model, line)) {
+            match router.ask(request(&manifest, &model, line)) {
                 Ok(reply) => println!("{reply}\n"),
                 Err(e) => println!("error: {e}\n"),
             }

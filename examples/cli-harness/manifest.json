@@ -2,6 +2,7 @@
   "router": "router/target/wasm32-wasip2/release/cli_router.wasm",
   "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
   "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "default": "coder",
 
   "workspace": "runs/workspace",
   "allow": ["python3", "node", "cargo", "rustc", "pytest"],

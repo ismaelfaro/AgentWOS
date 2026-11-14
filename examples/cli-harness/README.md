@@ -30,9 +30,13 @@ export OPENROUTER_API_KEY=sk-or-...        # only for what uses a model
 
 There are two ways to ask for something:
 
-- **`/<plugin> <input>`** calls that plugin directly. No model is involved.
-- **Anything else** goes to the model, which calls plugins one after another
-  until it can answer. Each call and its result are shown.
+- **`/<plugin> <input>`** calls that plugin directly.
+- **Anything else** goes to the default plugin, which here is `coder`: say
+  what you want built and it writes the code, runs it and fixes it.
+
+The default is the `default` key of the manifest. Remove it and anything
+without a `/` goes to the router's model instead, which calls plugins one
+after another until it can answer.
 
 ```
 > /wordcount one two three
@@ -40,15 +44,7 @@ words: 3
 characters: 13
 lines: 1
 
-> create a file notes.txt containing hello harness, then list the workspace
-[workspace] write notes.txt hello harness
-  wrote notes.txt (13 bytes)
-[workspace] list
-  file       13  notes.txt
-Created notes.txt with content 'hello harness'. Workspace files:
-- notes.txt (13 bytes)
-
-> /coder write primes.py that prints the primes below 30 and run it
+> write primes.py that prints the primes below 30 and run it
 write primes.py
   wrote primes.py (218 bytes)
 run python3 primes.py
@@ -98,6 +94,7 @@ shell, so pipes and redirection are not available.
   "router": "router/target/wasm32-wasip2/release/cli_router.wasm",
   "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
   "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+  "default": "coder",
 
   "workspace": "runs/workspace",
   "allow": ["python3", "node", "cargo", "rustc", "pytest"],
@@ -110,8 +107,9 @@ shell, so pipes and redirection are not available.
 ```
 
 Paths resolve from the manifest's folder. `model` takes an `openrouter/<id>` or
-a `local/<id>` (LM Studio) model. `description` is what the model reads to
-decide when to call a plugin, so write it for that reader.
+a `local/<id>` (LM Studio) model. `default` is the plugin that gets text typed
+without a `/`; it is optional. `description` is what the router's model reads
+to decide when to call a plugin, so write it for that reader.
 
 ## What a plugin can and cannot do
 
@@ -168,6 +166,6 @@ the harness's model. To touch files, call `workspace::read`, `write`,
 
 - The router and `coder` depend on the model following a JSON format. A weak
   model may answer in prose, which is then shown as the answer.
-- The model takes at most 6 plugin calls per request, and `coder` 8 steps.
+- The router's model takes at most 6 plugin calls per request, and `coder` 8 steps.
 - OS controls are not applied to plugin calls yet.
 - This runs on the native host only; the browser kernel does not load plugins.

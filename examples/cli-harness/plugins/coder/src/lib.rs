@@ -95,16 +95,23 @@ impl Guest for Component {
                 steps.push(Value::Null);
             }
             let mut results = String::new();
-            for step in &steps {
+            for (i, step) in steps.iter().enumerate() {
                 if let Some(done) = step.get("done").and_then(Value::as_str) {
-                    return Ok(trace + done);
+                    // `done` counts only on its own: sent together with other
+                    // steps, the model has not seen their results yet.
+                    if i == 0 {
+                        return Ok(trace + done);
+                    }
+                    break;
                 }
-                let (label, result) = match apply(step) {
-                    Ok(applied) => applied,
-                    Err(problem) => ("error".to_string(), problem),
-                };
+                let applied = apply(step);
+                let failed = applied.is_err();
+                let (label, result) = applied.unwrap_or_else(|problem| ("error".to_string(), problem));
                 trace += &format!("{label}\n{}\n", indent(&result));
                 results += &format!("{label}:\n{result}\n");
+                if failed {
+                    break; // the steps after it assumed this one worked
+                }
             }
             messages.push(message("assistant", reply));
             messages.push(message("user", format!("Result:\n{results}")));
