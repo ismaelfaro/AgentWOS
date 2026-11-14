@@ -169,22 +169,42 @@ export function createSynth(ctx) {
     noiseBurst(t, t + 0.04, "bandpass", 700, 1.2).connect(voice(t, v * 0.1, 0.001, 0.025, { out: bassBus }));
   }
 
-  // Electric piano: FM tine with a bright bell at the attack that mellows as
-  // the note decays. Harder hits are brighter, as on the real instrument.
+  // Synth lead: three detuned saws over a square sub, a resonant filter that
+  // opens on the attack, a glide from the previous note and vibrato on held notes.
+  let lastLeadFreq = null;
   function lead(t, v, midi, len) {
-    const ring = Math.min(2.4, Math.max(0.5, len * 2.2));
-    const end = t + ring + 0.3;
+    const dur = Math.max(0.1, len * 0.95);
+    const end = t + dur + 0.3;
     const freq = hz(midi);
-    const out = voice(t, v * 0.3, 0.003, ring, { pan: -0.15, reverbSend: 0.3, delaySend: 0.06 });
-    const body = ctx.createBiquadFilter();
-    body.type = "lowpass";
-    body.frequency.value = 4200;
-    body.connect(out);
-    fm(freq, 1, 0.9 + 1.4 * v, ring * 0.6, t, end).connect(body);
-    const bell = ctx.createGain();
-    bell.gain.setValueAtTime(0.25 * v, t);
-    bell.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-    fm(freq, 14, 0.5, 0.06, t, t + 0.2).connect(bell).connect(body);
+    const from = lastLeadFreq ?? freq;
+    lastLeadFreq = freq;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.Q.value = 7;
+    filter.frequency.setValueAtTime(700, t);
+    filter.frequency.exponentialRampToValueAtTime(1800 + 3200 * v, t + 0.03);
+    filter.frequency.exponentialRampToValueAtTime(900, t + Math.max(dur, 0.12));
+
+    const vibrato = osc("sine", 5.8, t, end);
+    const depth = ctx.createGain();
+    depth.gain.setValueAtTime(0, t);
+    depth.gain.setValueAtTime(0, t + Math.min(dur, 0.18));
+    depth.gain.linearRampToValueAtTime(dur > 0.3 ? 9 : 0, t + Math.min(dur, 0.45));
+    vibrato.connect(depth);
+
+    const mix = ctx.createGain();
+    mix.gain.value = 0.3;
+    mix.connect(filter);
+    for (const [type, detune, level] of [["sawtooth", -12, 1], ["sawtooth", 0, 1], ["sawtooth", 12, 1], ["square", -1200, 0.5]]) {
+      const o = osc(type, from, t, end, detune);
+      o.frequency.exponentialRampToValueAtTime(freq, t + 0.035);
+      depth.connect(o.detune);
+      const g = ctx.createGain();
+      g.gain.value = level;
+      o.connect(g).connect(mix);
+    }
+    filter.connect(voice(t, v * 0.52, 0.006, dur + 0.12, { pan: -0.15, reverbSend: 0.3, delaySend: 0.3 }));
   }
 
   return {
