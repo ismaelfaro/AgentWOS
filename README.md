@@ -147,6 +147,8 @@ implemented yet.
 - [Hot swapping](design/hot-swap.md): replacing agents and workflows while they run.
 - [State of the art](design/state-of-the-art.md): published work on
   self-improving agents and what the design takes from it.
+- [Benchmark](design/benchmark.md): a plan to measure models on coding tasks and
+  build a table for choosing the model of a coding agent per project.
 - [Roadmap](design/roadmap.md): order of work and open questions.
 
 ## Roadmap

@@ -131,6 +131,7 @@ exists, and stories that show it working.
 | System agents that improve the rest | [Evolution](evolution.md) | [Build](build/evolution.md) | [Stories](stories/evolution.md) |
 | Replacing agents and workflows while they run | [Hot swapping](hot-swap.md) | [Build](build/hot-swap.md) | [Stories](stories/hot-swap.md) |
 | Planes, shared memory, shared skills (under discussion) | [Hive](hive.md) | [Build](build/hive.md) | [Stories](stories/hive.md) |
+| Choosing the model for a coding agent: benchmark and knowledge table (plan) | [Benchmark](benchmark.md) | [Build](build/benchmark.md) | [Stories](stories/benchmark.md) |
 
 Supporting documents:
 
