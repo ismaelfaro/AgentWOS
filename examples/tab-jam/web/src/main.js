@@ -63,11 +63,31 @@ function setStatus(text, kind = "") {
 // ---------- audio ----------
 const audio = { ctx: null, synth: null, playing: false, nextBarTime: 0, bar: 0, bars: new Map(), last: null, now: null };
 
+// iOS Safari only starts audio from a user gesture, and only synchronously
+// inside it. So the context is created, resumed and unlocked by one silent
+// buffer right in the Start click; a later resume() would be ignored.
 function initAudio() {
   audio.ctx = new AudioContext();
+  unlockAudio();
   audio.synth = createSynth(audio.ctx);
   audio.synth.setVolume(Number($("volume").value));
   loadLeadSample();
+}
+
+function unlockAudio() {
+  const ctx = audio.ctx;
+  ctx.resume();
+  const silence = ctx.createBuffer(1, 1, ctx.sampleRate);
+  const src = ctx.createBufferSource();
+  src.buffer = silence;
+  src.connect(ctx.destination);
+  src.start(0);
+}
+
+/** Shows a "tap to hear" button whenever the context is not running. */
+function checkAudioRunning() {
+  const blocked = audio.ctx && audio.ctx.state !== "running";
+  $("unmute").hidden = !blocked;
 }
 
 // A local recording can replace the synthesized lead. The samples folder is not
@@ -108,11 +128,12 @@ function scheduleBar() {
 setInterval(() => {
   if (audio.playing && audio.nextBarTime - audio.ctx.currentTime < 0.2) scheduleBar();
 }, 40);
+setInterval(() => { if (audio.ctx) checkAudioRunning(); }, 1000);
 
 function startPlayback() {
   audio.playing = true;
   audio.nextBarTime = audio.ctx.currentTime + 0.15;
-  audio.ctx.resume();
+  audio.ctx.resume().finally(checkAudioRunning);
   $("toggle").textContent = "Pause";
 }
 
@@ -504,6 +525,10 @@ function sendCue(text) {
   worker.postMessage({ type: "cue", id: ++cueId, text });
 }
 
+$("unmute").addEventListener("click", () => {
+  unlockAudio();
+  audio.ctx.resume().finally(checkAudioRunning);
+});
 $("start").addEventListener("click", () => {
   $("start").disabled = true;
   $("progress").hidden = false;

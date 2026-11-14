@@ -1,9 +1,85 @@
-# AgentWOS
+# AgentWOS: an agent operating system on WebAssembly
 
-An experimental agent operating system on WASM/WASI. Agents, tools, the LLM
-client, OS control modules and scenarios are WASM components. A Rust/Wasmtime
-host (Component Model) instantiates them, mediates every call between them and
-records what happened. A second kernel runs the same components in the browser.
+**AgentWOS** is an experimental operating system for AI agents, built on
+WebAssembly and WASI. Every agent, tool, LLM client, OS control and scenario is
+a WASM component with its own sandbox. A Rust host (Wasmtime and the Component
+Model) runs them, mediates every call between them, checks every action and
+records what happened. The same components also run in a browser tab, with no
+server.
+
+Early-stage and open. Built to learn how agents should be isolated, governed and
+composed, and to show it working.
+
+**Live example:** [**Agentic Tab Jam**](https://agentic-tab-jam.asst.workers.dev),
+a band of WASM agents you conduct in plain English, running fully in your
+browser with [Needle](https://cactuscompute.com/needle), a 35 MB tool-calling
+model. It is one example of what AgentWOS runs, not the whole project.
+
+## Why an operating system for agents
+
+Most agent frameworks put every agent in one process, trust every tool, and
+leave policy in prompts. AgentWOS takes the operating-system view instead:
+
+- **Isolation by default.** One WASI context per instance. A tool or agent gets
+  no network, files or secrets unless its manifest grants them.
+- **Mediated calls.** Agents never call each other directly. Every tool call,
+  model call and message goes through the host, where it can be inspected.
+- **Controls as processes.** An OS control is a WASM component that sees every
+  action and can allow, modify, block or flag it. It describes its own rules,
+  so a UI can show what it enforces.
+- **Portable components.** The same `.wasm` runs in the native host and in the
+  browser. A contract in one WIT file (`wit/world.wit`) generates the bindings
+  for both.
+- **Observable runs.** Every run writes a log that a dashboard reads, with the
+  verdict and latency of each action.
+
+## Two ways to run it
+
+| | Native host (`host/`) | Browser kernel (`web/kernel/`) |
+|---|---|---|
+| Runtime | Wasmtime, Component Model | The browser's WebAssembly, components transpiled with `jco` |
+| Model | Any OpenAI-compatible API: LM Studio, OpenRouter | Needle (35 MB), in the tab |
+| Example | [Mars colony](examples/mars-colony/) (turn-based scenario) | [Tab Jam](examples/tab-jam/) (interactive, tool calls) |
+| Also | [CLI harness](examples/cli-harness/): a router agent with sandboxed plugins | |
+
+## Quick start
+
+Native host, with LM Studio on `localhost:1234` or an OpenRouter key:
+
+```bash
+source "$HOME/.cargo/env"
+for m in modules/tool-echo modules/llm-call modules/agent-core; do
+  (cd $m && cargo build --release --target wasm32-wasip2)
+done
+cargo build --release
+
+examples/mars-colony/build.sh
+./target/release/agentwos-host --manifest examples/mars-colony/manifest.json --colony 3
+```
+
+Browser, no server needed after the first load:
+
+```bash
+examples/tab-jam/build.sh
+tools/serve.py
+# open http://localhost:8765/examples/tab-jam/web/dist/index.html
+```
+
+Requirements: Rust with the `wasm32-wasip2` target (`rustup target add wasm32-wasip2`),
+and Python 3 to serve the pages.
+
+## Examples
+
+- **[Agentic Tab Jam](examples/tab-jam/)**: a browser band. Agents
+  (drums, bass, lead, and orchestra sections you add one by one) act only
+  through tool calls that Needle proposes. An Orchestra Director control checks
+  each call, and spikes show the signals between agents.
+- **[Mars colony](examples/mars-colony/)**: a turn-based simulation. Five
+  colonists decide each day what to do, a control filters their actions, and a
+  dashboard replays the run.
+- **[CLI harness](examples/cli-harness/)**: a router agent that calls plugins as
+  tools. Each plugin is its own agent with only the grants its manifest gives it:
+  an LLM, one folder, a list of allowed programs.
 
 ## Architecture
 
@@ -24,239 +100,85 @@ records what happened. A second kernel runs the same components in the browser.
 ```
 
 - **Scenario.** A WASM component that owns the world: which agents exist, what
-  each one is told, what its actions do, and the record of what happened. The
-  kernel knows nothing about any particular scenario.
-- **Agent.** A WASM component that calls the LLM and tools through host imports.
-- **Control.** A WASM component that inspects every action before it is
-  delivered. It can allow, modify, block or flag it. A blocked action is not
-  delivered. It also describes itself (`describe`), so a UI can
-  show what it enforces.
-- **Log.** Each run writes `window.SIM_DATA` as a script, so a dashboard can read
-  it without a backend.
+  each one is told, what its actions do, and the record. The kernel knows
+  nothing about any particular scenario.
+- **Agent.** A WASM component that calls models and tools through host imports.
+- **Control.** A WASM component that inspects every action before delivery.
+- **Log.** Each run writes `window.SIM_DATA` as a script, so a dashboard reads it
+  without a backend.
 
 Principles:
 
-- **One Store per instance.** Each component has its own WASI context; nothing is
-  shared except what the host mediates.
+- **One Store per instance.** Nothing is shared except what the host mediates.
 - **Minimal capabilities.** Only `llm-call` gets `wasi:http` and the API key.
   Tools, agents, controls and scenarios have no network access.
-- **The host mediates every call.** Agent imports resolve against other instances
-  through the host, and every action goes through the control chain.
-- **One contract.** `wit/world.wit` defines every interface and world. The host
-  and modules generate their bindings from that file.
+- **The host mediates every call.** Agents resolve each other's imports through
+  the host, and every action passes the control chain.
+- **One contract.** `wit/world.wit` defines every interface and world.
 
-## Layout
+## Write your own agent, tool or scenario
 
-- `wit/world.wit`: interfaces `types`, `tool`, `llm`, `agent`, `control`, `scenario`,
-  `workspace`, and for tool-calling agents `tool-llm`, `actor`, `stage`.
-- `host/src/runtime.rs`: WASI, bindings, component loading and instantiation.
-- `host/src/harness.rs`: plugin harness: manifest, plugin registry, prompt.
-- `host/src/workspace.rs`: the folder and programs a plugin may be granted.
-- `host/src/control.rs`: control chain.
-- `host/src/runner.rs`: scenario runner and log writer.
-- `host/src/main.rs`: CLI and manifest loading.
-- `modules/agent-core`: agent. `model:<id> <text>` picks the model; `tool:echo <text>` calls the tool.
-- `modules/llm-call`: OpenAI-compatible client. `local/<id>` goes to LM Studio
-  (`localhost:1234`); `openrouter/<id>` goes to OpenRouter (`OPENROUTER_API_KEY`).
-- `modules/tool-echo`: example tool.
-- `modules/actor`: agent that acts only through tool calls. Splits an instruction
-  into clauses, keeps the ones addressed to it and asks a `tool-llm` for calls.
-- `web/kernel/`: browser kernel. Runs components transpiled with `jco`, applies
-  the control chain, and provides Needle (a 35 MB tool-calling model) as `tool-llm`.
-- `examples/tab-jam/`: browser example: a band of agents you conduct in plain
-  English, fully in one tab. See its [README](examples/tab-jam/README.md).
-- `examples/cli-harness/`: CLI example: a router agent plus plugins, where
-  every plugin is another agent with only the grants its manifest gives it. See its
-  [README](examples/cli-harness/README.md).
-- `examples/mars-colony/`: example scenario: a colony on Mars. Everything it needs
-  lives here:
-  - `scenario/`: the scenario component.
-  - `controls/guardia/`: a control. Blocks sabotage, truncates long messages and
-    flags abundance claims while a context value is critical.
-  - `build.sh`: builds the scenario and its controls.
-  - `manifest.json`: scenario, controls, model, days and log path.
-  - `dashboard/index.html`: observation console for this scenario's log.
-  - `runs/`: generated logs (git-ignored).
+- **Scenario:** a crate that targets `wasm32-wasip2` and exports the `scenario`
+  interface. `setup`, `begin-day`, `turn-messages`, `action-of`, `context`,
+  `record-turn`, `end-day` and `snapshot` drive it. See
+  [how the Mars scenario is built](examples/mars-colony/scenario/src/lib.rs).
+- **Agent that acts only through tool calls:** the `actor` module, which splits
+  an instruction into clauses, keeps the ones addressed to it and asks a
+  `tool-llm` for calls. See [`modules/actor`](modules/actor/src/lib.rs).
+- **Control:** export the `control` interface. `inspect` decides on each action;
+  `describe` says what it enforces. See
+  [the Orchestra Director](examples/tab-jam/controls/director-agentWOS/src/lib.rs).
+- **Plugin:** the `plugin-module` world, granted only what its manifest names.
+  See the [CLI harness](examples/cli-harness/README.md).
 
-## Requirements
+## Design
 
-- Rust (rustup) with the `wasm32-wasip2` target: `rustup target add wasm32-wasip2`.
-- An OpenAI-compatible LLM backend:
-  - **Local**: LM Studio with its server on `localhost:1234` and a model loaded
-    (tested with `google/gemma-4-e4b` and `bonsai-1.7b`).
-  - **Remote**: OpenRouter, with `OPENROUTER_API_KEY` exported.
-- Python 3, only to serve the dashboard.
-
-## Build
-
-```bash
-source "$HOME/.cargo/env"
-for m in modules/tool-echo modules/llm-call modules/agent-core; do
-  (cd $m && cargo build --release --target wasm32-wasip2)
-done
-cargo build --release
-
-examples/mars-colony/build.sh
-```
-
-## Two kernels
-
-| | Native host (`host/`) | Browser kernel (`web/kernel/`) |
-|---|---|---|
-| Runtime | Wasmtime | The browser's WebAssembly, components transpiled with `jco` |
-| LLM | `llm-call` over HTTP (LM Studio, OpenRouter) | Needle, in-tab |
-| Drives | `scenario` (turn-based days) | `stage` (interactive, tool calls) |
-| Example | `examples/mars-colony` | `examples/tab-jam` |
-
-Both use the same `wit/world.wit` and the same `control` interface. The native
-host does not run `stage` scenarios yet, and the browser kernel does not run
-`scenario` ones.
-
-## Run a scenario
-
-```bash
-./target/release/agentwos-host --manifest examples/mars-colony/manifest.json --colony 3
-```
-
-Manifest paths resolve from the manifest's folder, so the example can be moved
-or copied as a unit.
-
-A manifest declares what to run:
-
-```json
-{
-  "scenario": "scenario/target/wasm32-wasip2/release/mars_colony.wasm",
-  "controls": ["controls/guardia/target/wasm32-wasip2/release/control_guardia.wasm"],
-  "model": "local/google/gemma-4-e4b",
-  "days": 10,
-  "log": "runs/latest.js"
-}
-```
-
-Paths resolve from the manifest's folder. CLI flags override manifest values:
-`--scenario`, `--control` (repeatable), `--model`, `--colony N` (days), `--log`.
-
-Each turn with a local model takes 20-40 s, so one day with five agents is
-roughly two to three minutes.
-
-## Single agent
-
-```bash
-./target/release/agentwos-host --message "model:local/google/gemma-4-e4b hello"
-./target/release/agentwos-host --message "model:openrouter/anthropic/claude-haiku-4.5 hello"
-./target/release/agentwos-host --message "tool:echo hello"
-```
-
-Component paths have defaults; override them with `--agent`, `--tool`, `--llm`.
-
-## CLI harness
-
-A router agent plus plugins, where each plugin is another agent in its own
-instance. Build the example, then run one request or open a prompt:
-
-```bash
-examples/cli-harness/build.sh
-./target/release/agentwos-host --harness examples/cli-harness/manifest.json --message "/wordcount one two three"
-./target/release/agentwos-host --harness examples/cli-harness/manifest.json --list
-./target/release/agentwos-host --harness examples/cli-harness/manifest.json
-```
-
-`/<plugin> <input>` calls a plugin directly. Anything else goes to the
-manifest's `default` plugin (`coder` in the example) or, without one, to the
-router's model, which calls plugins one after another until it can answer. The
-router reaches every plugin through its ordinary `tool` import.
-
-A plugin uses the `plugin-module` world and can do nothing but compute until
-the manifest grants it something: `llm` for a model, `workspace` for one folder
-and a list of allowed programs. The `coder` plugin has both: it writes code,
-runs it and fixes it until it works. See
-[`examples/cli-harness`](examples/cli-harness/README.md).
-
-## Writing a scenario
-
-Create a folder with a crate that targets `wasm32-wasip2`, generates bindings
-from `wit/world.wit` with the `scenario-module` world, and exports the `scenario`
-interface. Keep the scenario's controls, dashboard and runs inside that folder, as
-the Mars example does:
-
-- `setup(config)` gets `{model, days}` and returns `{agents: [{agent, role}], ...}`.
-  Any other fields are copied into the log for the dashboard.
-- `begin-day` and `end-day` bracket each day. `end-day` returns true to stop the run.
-- `turn-messages`, `action-of`, `context` and `record-turn` run each agent turn.
-  `context` is JSON that every control receives.
-- `snapshot` returns the recorded days as JSON.
-
-Then write a manifest next to it that points at the new `.wasm`.
-
-## Log format
-
-The log is `window.SIM_DATA`. Top-level fields come from the run (`model`,
-`days_total`, `finished`, `controls`, `start_unix`) and from `setup` (for
-example `agents`). `days` is whatever the scenario records. The Mars scenario
-records `day`, `event`, `in_progress`, `collapse`, `start_state`, `end_state` and
-`turns[]`, where each turn has `agent`, `action`, `delivered`, `zone`, `status`,
-`effect`, `controls[]`, `latency_ms`, `format_ok`, `error` and
-`resources_after_turn`.
-
-## Dashboard
-
-The Mars dashboard is an example of an observation console for one scenario. Serve
-the repo and open it:
-
-```bash
-tools/serve.py
-# open http://localhost:8765/examples/mars-colony/dashboard/index.html
-```
-
-It refreshes every 3 s while a run is in progress. The cursor (scrubber, `<` `>`,
-arrow keys, space to play) moves every panel at once, and "live" follows the
-latest turn.
-
-## Troubleshooting
-
-- **`Address already in use` when serving the dashboard**: something is already on
-  port 8765. Open the URL directly or use another port.
-- **`ErrorCode::ConnectionRefused`**: LM Studio's server is not running on `localhost:1234`.
-- **`OPENROUTER_API_KEY missing from the host environment`**: export the key before
-  using an `openrouter/...` model.
-- **`no scenario loaded`**: pass `--manifest` or `--scenario` together with `--colony`.
-- **Empty dashboard**: no `log` path is set, or the first turn has not finished yet.
-
-## Design notes
-
-The [design documents](design/README.md) describe where AgentWOS is going: a
-new kind of operating system, for agents, that runs on top of classic ones. It
-is AI first, cloud native and local first, and it is meant to improve itself.
-They are a proposal, not implemented yet.
+The [design documents](design/README.md) describe where AgentWOS is going: an
+operating system for agents, AI first, local first and cloud native, that runs
+on top of classic systems and can improve itself. These are proposals, not
+implemented yet.
 
 - [Architecture](design/architecture.md): the layers, and the rule that
   everything that runs is an agent and only the kernel is not.
 - [Protocol](design/protocol.md): intents, grants, mandates, policy, guards and
-  the ledger; who may ask whom for what, and on whose behalf.
-- [Distribution](design/distribution.md): realms, pools of experts and swarms
-  across kernels.
-- [Evolution](design/evolution.md): system agents that improve user agents
-  and the system itself, and the limits they cannot change.
-- [Hot swapping](design/hot-swap.md): replacing agents and workflows while they
-  run.
-- [Hive](design/hive.md): planes, shared memory and shared skills (under
-  discussion).
+  the ledger.
+- [Evolution](design/evolution.md): system agents that improve user agents and
+  the system itself, and the limits they cannot change.
+- [Hot swapping](design/hot-swap.md): replacing agents and workflows while they run.
 - [State of the art](design/state-of-the-art.md): published work on
   self-improving agents and what the design takes from it.
-- Each feature also has a build document (`design/build/`) and a set of
-  stories (`design/stories/`).
-- [Manifest](design/manifest.md): one resource format for every mode.
 - [Roadmap](design/roadmap.md): order of work and open questions.
 
-## Next phases
+## Roadmap
 
-1. **Dynamic registry**: `attach(uri, interface)` so an agent can load a tool at
-   runtime; the host validates the interface, instantiates and caches it.
-2. **One kernel surface**: run `stage` scenarios on the native host and `scenario`
-   ones in the browser.
-3. **Generic dashboard**: render any scenario's log, leaving scenario-specific
-   views to scenarios.
-4. **LLM-backed controls**: a control that uses its own `llm-call` to judge
+1. **Dynamic registry**: `attach(uri, interface)` so an agent loads a tool at
+   runtime; the host validates, instantiates and caches it.
+2. **One kernel surface**: run `stage` scenarios on the native host and
+   `scenario` ones in the browser.
+3. **Generic dashboard**: render any scenario's log.
+4. **LLM-backed controls**: a control that uses its own model to judge
    consistency across agents.
-5. **Evolver**: generate code, compile to wasm, evaluate in a sandbox and promote
-   versions in the registry, with rollback.
+5. **Evolver**: generate code, compile to WASM, evaluate in a sandbox, promote
+   versions in the registry with rollback.
+
+## Troubleshooting
+
+- **`Address already in use` on port 8765**: another server holds the port. Open
+  the URL directly or run `tools/serve.py 8766`.
+- **`ErrorCode::ConnectionRefused`**: LM Studio's server is not running on `localhost:1234`.
+- **`OPENROUTER_API_KEY missing from the host environment`**: export the key
+  before using an `openrouter/...` model.
+- **`no scenario loaded`**: pass `--manifest` or `--scenario` together with `--colony`.
+
+## Keywords
+
+WebAssembly agents, WASM agents, WASI, Component Model, Wasmtime, agent
+operating system, multi-agent orchestration, tool calling, sandboxed agents,
+agent isolation, LLM controls and guardrails, browser AI, in-browser LLM,
+Needle, jco, Rust agents, agent observability.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
+
+Copyright 2026 Ismael Faro Sertage
