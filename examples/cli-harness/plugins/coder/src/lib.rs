@@ -1,123 +1,164 @@
-//! `coder` plugin agent: given a task, it writes files, runs them and fixes
-//! what fails, until it is done.
+//! `coder` plugin agent: the lead. Given a task, it reads and edits the
+//! project's files and asks the expert agents for everything else, until the
+//! task is done.
+//! Grants: `llm`, `workspace`, `plugins`. It may run no program itself: the
+//! expert that owns a tool runs it, under that expert's own rules.
 //!
-//! It needs both grants: `llm` to think and `workspace` to act. The model
-//! proposes one step at a time and the host applies it, so nothing happens
-//! outside the workspace or with a program the manifest does not allow.
+//! The model proposes steps as JSON and this agent applies them. Which experts
+//! it is told about depends on the project, and is looked up again before
+//! every step, so an expert appears once the project has something for it.
 
-wit_bindgen::generate!({
-    world: "plugin-module",
-    path: "../../../../wit/world.wit",
-});
+use std::sync::Mutex;
 
-use agentwos::core::llm;
-use agentwos::core::types::{CallError, Message};
-use agentwos::core::workspace;
-use exports::agentwos::core::agent::Guest;
-use serde_json::Value;
+use kit::*;
+
+struct Coder;
 
 /// Steps the model may take for one task.
-const MAX_STEPS: usize = 8;
-/// How much of each step's result is echoed in the trace.
-const TRACE_CHARS: usize = 300;
+const MAX_STEPS: usize = 24;
+/// How much of a step's result is shown on screen, and given to the model.
+const SHOWN_CHARS: usize = 500;
+const RESULT_CHARS: usize = 12_000;
+/// Earlier tasks of this session the model is reminded of.
+const REMEMBERED_MESSAGES: usize = 8;
 
-const SYSTEM: &str = "\
-You write and run code in a workspace folder. Reply with one JSON object and nothing else:
-{\"write\": {\"path\": \"<relative path>\", \"content\": \"<whole file>\"}}
-{\"run\": {\"program\": \"<program>\", \"args\": [\"<arg>\", \"...\"]}}
-{\"read\": \"<relative path>\"}
-{\"done\": \"<what you did and what the result was>\"}
-Take one step at a time; you get the result of each. When a run fails, fix the file and run again. \
-Only a few programs may be run; if one is refused, the error lists the allowed ones.";
+/// The session so far: each task and how it ended. A plugin instance lives as
+/// long as the harness, so this is the agent's memory between requests.
+static SESSION: Mutex<Vec<Message>> = Mutex::new(Vec::new());
 
-struct Component;
+/// The other agents that fit the project right now, one "- name: description" each.
+fn experts() -> Vec<String> {
+    let others = agents().into_iter().filter(|(name, _)| name != "coder");
+    others.map(|(name, description)| format!("- {name}: {description}")).collect()
+}
 
-fn text_of(e: CallError) -> String {
-    match e {
-        CallError::InvalidInput(s) | CallError::ExecutionFailed(s) | CallError::NotFound(s) => s,
+fn system(experts: &[String]) -> String {
+    format!(
+        "You are a coding agent working in a project folder. You act only through JSON steps, one object per step:\n\
+         {{\"read\": \"<path>\"}}\n\
+         {{\"write\": {{\"path\": \"<path>\", \"content\": \"<whole file>\"}}}}\n\
+         {{\"edit\": {{\"path\": \"<path>\", \"old\": \"<exact text now in the file>\", \"new\": \"<its replacement>\"}}}}\n\
+         {{\"ask\": {{\"agent\": \"<name>\", \"input\": \"<request>\"}}}}\n\
+         {{\"done\": \"<what you did and what the result was>\"}}\n\
+         Paths are relative to the project. You cannot run programs: ask the expert agent that owns the tool. \
+         Expert agents for this project (more appear as the project grows):\n{}\n\
+         Read a file before you edit it. Run or test what you wrote before you finish. \
+         Send `done` alone, after you have seen the results of your steps. Reply with JSON only.",
+        experts.join("\n")
+    )
+}
+
+fn field<'a>(step: &'a Value, key: &str) -> Result<&'a str, String> {
+    step[key].as_str().ok_or_else(|| format!("this step needs a `{key}`"))
+}
+
+/// Replaces the one place `old` occurs in a file.
+fn edit(path: &str, old: &str, new: &str) -> Result<String, String> {
+    let before = workspace::read(path).map_err(text_of)?;
+    match before.matches(old).count() {
+        1 => workspace::write(path, &before.replacen(old, new, 1)).map_err(text_of),
+        0 => Err(format!("`old` does not occur in {path}; read the file and copy the text exactly")),
+        n => Err(format!("`old` occurs {n} times in {path}; include more of the surrounding text")),
     }
 }
 
-fn message(role: &str, content: impl Into<String>) -> Message {
-    Message { role: role.into(), content: content.into() }
-}
-
-/// Every JSON object in the reply, in order. A small model often sends several
-/// steps at once (write, then run) or wraps them in a code fence.
-fn json_objects(reply: &str) -> Vec<Value> {
-    let Some(start) = reply.find('{') else { return Vec::new() };
-    serde_json::Deserializer::from_str(&reply[start..]).into_iter().map_while(Result::ok).collect()
-}
-
-/// A step's result as it appears in the trace: indented and cut short.
-fn indent(text: &str) -> String {
-    let shown: String = text.chars().take(TRACE_CHARS).collect();
-    let cut = if text.chars().count() > TRACE_CHARS { "\n  ..." } else { "" };
-    format!("  {}{cut}", shown.replace('\n', "\n  "))
-}
-
-/// Applies one step. Returns a short label for the trace and the result the model sees.
+/// Applies one step. Returns a label for the screen and the result.
 fn apply(step: &Value) -> Result<(String, String), String> {
-    if let Some(write) = step.get("write") {
-        let path = write["path"].as_str().ok_or("`write` needs a `path`")?;
-        let content = write["content"].as_str().ok_or("`write` needs `content`")?;
-        let result = workspace::write(path, content).map_err(text_of)?;
-        return Ok((format!("write {path}"), result));
-    }
-    if let Some(run) = step.get("run") {
-        let program = run["program"].as_str().ok_or("`run` needs a `program`")?;
-        let args: Vec<String> =
-            run["args"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
-        let result = workspace::exec(program, &args).map_err(text_of)?;
-        let output = format!("exit {}\n{}{}", result.status, result.stdout, result.stderr);
-        return Ok((format!("run {program} {}", args.join(" ")), output.trim_end().to_string()));
-    }
-    if let Some(path) = step.get("read").and_then(Value::as_str) {
+    if let Some(path) = step["read"].as_str() {
         return Ok((format!("read {path}"), workspace::read(path).map_err(text_of)?));
     }
-    Err("the reply must have one of: write, run, read, done".into())
+    if let Some(write) = step.get("write") {
+        let path = field(write, "path")?;
+        return Ok((format!("write {path}"), workspace::write(path, field(write, "content")?).map_err(text_of)?));
+    }
+    if let Some(change) = step.get("edit") {
+        let path = field(change, "path")?;
+        return Ok((format!("edit {path}"), edit(path, field(change, "old")?, field(change, "new")?)?));
+    }
+    if let Some(ask) = step.get("ask") {
+        let (agent, input) = (field(ask, "agent")?, ask["input"].as_str().unwrap_or(""));
+        let label = format!("{agent}: {}", input.lines().next().unwrap_or(""));
+        return Ok((label, call(agent, input).map_err(text_of)?));
+    }
+    if step.is_null() {
+        return Err("the reply was not valid JSON. Inside a JSON string write a backslash as \\\\ and a quote as \\\"".into());
+    }
+    Err(format!("a step must be one of read, write, edit, ask, done; got {}", clip(&step.to_string(), 120)))
 }
 
-impl Guest for Component {
-    fn run(input: Vec<Message>) -> Result<String, CallError> {
-        let task = input.last().map(|m| m.content.trim()).unwrap_or("");
-        if task.is_empty() {
-            return Ok("usage: coder <what to build and run>".into());
-        }
-        let mut messages = vec![message("system", SYSTEM), message("user", task)];
-        let mut trace = String::new();
+fn show(label: &str, result: &str) {
+    println!("* {label}\n    {}", clip(result.trim_end(), SHOWN_CHARS).replace('\n', "\n    "));
+}
 
-        for _ in 0..MAX_STEPS {
-            // An empty model name means the harness's own model.
-            let reply = llm::complete(&messages, "")?;
-            let mut steps = json_objects(&reply);
-            if steps.is_empty() {
-                steps.push(Value::Null);
+fn work(task: &str) -> Reply {
+    // The `project` agent, when there is one, says what environment this is.
+    let project = call("project", "").map(|report| format!("{report}\n\n")).unwrap_or_default();
+    let mut known = experts();
+    let mut messages = vec![message("system", system(&known))];
+    messages.extend(SESSION.lock().unwrap().iter().cloned());
+    messages.push(message("user", format!("{project}Task: {task}")));
+
+    for _ in 0..MAX_STEPS {
+        let reply = llm::complete(&messages, "")?;
+        let mut steps = json_objects(&reply);
+        if steps.is_empty() {
+            if !reply.contains('{') {
+                return Ok(reply.trim().to_string()); // plain words are the answer
             }
-            let mut results = String::new();
-            for (i, step) in steps.iter().enumerate() {
-                if let Some(done) = step.get("done").and_then(Value::as_str) {
-                    // `done` counts only on its own: sent together with other
-                    // steps, the model has not seen their results yet.
-                    if i == 0 {
-                        return Ok(trace + done);
-                    }
-                    break;
-                }
-                let applied = apply(step);
-                let failed = applied.is_err();
-                let (label, result) = applied.unwrap_or_else(|problem| ("error".to_string(), problem));
-                trace += &format!("{label}\n{}\n", indent(&result));
-                results += &format!("{label}:\n{result}\n");
-                if failed {
-                    break; // the steps after it assumed this one worked
-                }
-            }
-            messages.push(message("assistant", reply));
-            messages.push(message("user", format!("Result:\n{results}")));
+            steps.push(Value::Null); // JSON that does not parse: tell the model
         }
-        Ok(trace + &format!("Stopped after {MAX_STEPS} steps without finishing."))
+        let mut results = String::new();
+        for (i, step) in steps.iter().enumerate() {
+            if let Some(done) = step["done"].as_str() {
+                // `done` counts only on its own: sent together with other
+                // steps, the model has not seen their results yet.
+                if i == 0 {
+                    return Ok(done.to_string());
+                }
+                break;
+            }
+            let applied = apply(step);
+            let failed = applied.is_err();
+            let (label, result) = applied.unwrap_or_else(|problem| ("error".to_string(), problem));
+            show(&label, &result);
+            results += &format!("{label}:\n{}\n", clip(&result, RESULT_CHARS));
+            if failed {
+                break; // the steps after it assumed this one worked
+            }
+        }
+        // The project may have changed which experts fit: say so when it did.
+        let now = experts();
+        let arrived: Vec<&String> = now.iter().filter(|e| !known.contains(e)).collect();
+        if !arrived.is_empty() {
+            let list = arrived.iter().map(|e| e.as_str()).collect::<Vec<_>>().join("\n");
+            results += &format!("Expert agents now available for this project:\n{list}\n");
+        }
+        messages[0] = message("system", system(&now));
+        known = now;
+        messages.push(message("assistant", reply));
+        messages.push(message("user", format!("Results:\n{results}")));
+    }
+    Ok(format!("Stopped after {MAX_STEPS} rounds without finishing."))
+}
+
+impl Guest for Coder {
+    fn run(input: Vec<Message>) -> Reply {
+        match text(&input) {
+            "" => Ok("usage: coder <what to build, fix or change>   (coder new: forget the session)".into()),
+            "new" => {
+                SESSION.lock().unwrap().clear();
+                Ok("session forgotten".into())
+            }
+            task => {
+                let outcome = work(task)?;
+                let mut session = SESSION.lock().unwrap();
+                session.extend([message("user", format!("Task: {task}")), message("assistant", outcome.clone())]);
+                let extra = session.len().saturating_sub(REMEMBERED_MESSAGES);
+                session.drain(..extra);
+                Ok(outcome)
+            }
+        }
     }
 }
 
-export!(Component);
+kit::export!(Coder);

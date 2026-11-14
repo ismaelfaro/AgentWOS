@@ -44,10 +44,31 @@ fn failed(message: impl Into<String>) -> CallError {
 }
 
 impl Workspace {
-    pub fn new(root: PathBuf, allow: Vec<String>, timeout: Duration) -> Self {
+    /// A workspace in which no program may be run yet; see `allowing`.
+    pub fn new(root: PathBuf, timeout: Duration) -> Self {
         let _ = std::fs::create_dir_all(&root);
         let root = root.canonicalize().unwrap_or(root);
-        Self { root, allow, timeout }
+        Self { root, allow: Vec::new(), timeout }
+    }
+
+    /// The same folder, for a holder that may run these programs.
+    pub fn allowing(&self, allow: &[String]) -> Self {
+        Self { allow: allow.to_vec(), ..self.clone() }
+    }
+
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Whether the top of the folder has this marker: a name (`Cargo.toml`)
+    /// or a suffix (`*.py`). This is how a project is recognised.
+    pub fn has(&self, marker: &str) -> bool {
+        match marker.strip_prefix('*') {
+            None => self.root.join(marker).exists(),
+            Some(suffix) => std::fs::read_dir(&self.root)
+                .map(|entries| entries.flatten().any(|e| e.file_name().to_string_lossy().ends_with(suffix)))
+                .unwrap_or(false),
+        }
     }
 
     /// Turns a workspace-relative path into a real one, refusing anything that

@@ -1,7 +1,5 @@
-[workspace]
-
 [package]
-name = "plugin-echo"
+name = "echo"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,8 +7,4 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-wit-bindgen = "0.36"
-
-[profile.release]
-opt-level = "s"
-lto = true
+kit = { path = "../../kit" }

@@ -1,9 +1,11 @@
 //! CLI harness: one router agent plus plugin agents. Each plugin is its own
-//! WASM instance, and the router reaches all of them through its ordinary
-//! `tool` import. What a plugin may touch is decided here, from the manifest.
+//! WASM instance. The router reaches them through its ordinary `tool` import,
+//! and so does any plugin granted `plugins`, which is how agents call each
+//! other. What a plugin may touch is decided here, from the manifest.
 
 use std::io::{self, BufRead, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use anyhow::{anyhow, bail, Result};
@@ -15,18 +17,38 @@ use wasmtime_wasi::{WasiCtxView, WasiView};
 use crate::runtime::plugin_world::agentwos::core::workspace::{ExecResult, FileEntry, Host as WorkspaceHost};
 use crate::runtime::plugin_world::PluginModule;
 use crate::runtime::{
-    load, message, AgentInstance, CallError, LlmClient, LlmHost, Message, ToolCall, Tools, TypesHost, WasiState,
+    load, message, AgentInstance, CallError, LlmClient, LlmHost, Message, ToolCall, ToolHost, Tools, TypesHost,
+    WasiState,
 };
 use crate::workspace::Workspace;
 
-const GRANTS: [&str; 2] = ["llm", "workspace"];
-const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
+const GRANTS: [&str; 3] = ["llm", "workspace", "plugins"];
+const DEFAULT_TIMEOUT_SECONDS: u64 = 60;
 
+/// One entry of `plugins` in the manifest.
 struct PluginSpec {
     name: String,
     description: String,
     path: String,
+    /// `llm`, `workspace`, `plugins`: the imports that work for this plugin.
     grants: Vec<String>,
+    /// Programs it may run in the workspace.
+    allow: Vec<String>,
+    /// Project markers (`Cargo.toml`, `*.py`). With any, the plugin is only
+    /// offered to other agents in a project that has one of them.
+    when: Vec<String>,
+    /// Its own model; the harness model otherwise.
+    model: Option<String>,
+}
+
+impl PluginSpec {
+    fn granted(&self, grant: &str) -> bool {
+        self.grants.iter().any(|g| g == grant)
+    }
+
+    fn fits(&self, project: &Workspace) -> bool {
+        self.when.is_empty() || self.when.iter().any(|marker| project.has(marker))
+    }
 }
 
 /// `manifest.json` of a harness. Paths resolve from the manifest's folder.
@@ -37,7 +59,8 @@ struct Manifest {
     /// Plugin that gets whatever is typed without a `/<plugin>` prefix.
     /// Without it, that text goes to the router's model, which picks plugins.
     default: Option<String>,
-    workspace: Workspace,
+    workspace: PathBuf,
+    timeout: Duration,
     plugins: Vec<PluginSpec>,
 }
 
@@ -64,6 +87,9 @@ impl Manifest {
             plugins.push(PluginSpec {
                 description: p["description"].as_str().unwrap_or("").to_string(),
                 path: resolve(&text(p, "agent")?),
+                allow: list(&p["allow"]),
+                when: list(&p["when"]),
+                model: p["model"].as_str().map(str::to_string),
                 name,
                 grants,
             });
@@ -71,7 +97,6 @@ impl Manifest {
         if plugins.is_empty() {
             bail!("{}: no plugins", path.display());
         }
-
         let default = raw["default"].as_str().map(str::to_string);
         if let Some(name) = default.as_deref().filter(|d| plugins.iter().all(|p| p.name != *d)) {
             bail!("{}: `default` names '{name}', which is not a plugin", path.display());
@@ -82,11 +107,8 @@ impl Manifest {
             router: resolve(&text(&raw, "router")?),
             llm: resolve(&text(&raw, "llm")?),
             model: raw["model"].as_str().map(str::to_string),
-            workspace: Workspace::new(
-                base.join(raw["workspace"].as_str().unwrap_or("workspace")),
-                list(&raw["allow"]),
-                Duration::from_secs(raw["timeout_seconds"].as_u64().unwrap_or(DEFAULT_TIMEOUT_SECONDS)),
-            ),
+            workspace: base.join(raw["workspace"].as_str().unwrap_or("workspace")),
+            timeout: Duration::from_secs(raw["timeout_seconds"].as_u64().unwrap_or(DEFAULT_TIMEOUT_SECONDS)),
             plugins,
         })
     }
@@ -96,10 +118,11 @@ impl Manifest {
 /// simply absent, and the import answers with an error.
 struct PluginState {
     wasi: WasiState,
-    /// The harness model, used when a plugin asks for a completion without naming one.
+    /// Used when the plugin asks for a completion without naming a model.
     model: String,
     llm: Option<LlmClient>,
     workspace: Option<Workspace>,
+    plugins: Option<Plugins>,
 }
 
 fn not_granted(what: &str) -> CallError {
@@ -147,114 +170,152 @@ impl WorkspaceHost for PluginState {
     }
 }
 
-struct Plugin {
-    name: String,
-    description: String,
-    store: Store<PluginState>,
-    bindings: PluginModule,
+/// The other plugins, for a plugin granted `plugins`.
+impl ToolHost for PluginState {
+    fn describe(&mut self) -> String {
+        self.plugins.as_mut().map(Tools::describe).unwrap_or_else(|| json!({ "tools": [] }).to_string())
+    }
+
+    fn invoke(&mut self, call: ToolCall) -> Result<String, CallError> {
+        self.plugins.as_mut().ok_or_else(|| not_granted("plugins"))?.invoke(call)
+    }
 }
 
-/// Every plugin of the harness, presented to the router as its tools.
-struct Plugins(Vec<Plugin>);
+struct Plugin {
+    spec: PluginSpec,
+    /// Locked while the plugin runs, so a chain of calls cannot re-enter it.
+    live: Mutex<(Store<PluginState>, PluginModule)>,
+}
+
+/// Every plugin of the harness. The router holds one of these as its tools,
+/// and so does each plugin granted `plugins`.
+#[derive(Clone)]
+struct Plugins {
+    all: Arc<OnceLock<Vec<Plugin>>>,
+    project: Workspace,
+}
 
 impl Plugins {
-    fn spawn(engine: &Engine, manifest: &Manifest, model: &str) -> Result<Self> {
+    fn spawn(engine: &Engine, manifest: Manifest, project: &Workspace, model: &str) -> Result<Self> {
         let llm = load(engine, &manifest.llm)?;
         let mut linker = Linker::<PluginState>::new(engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         PluginModule::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
 
-        let mut plugins = Vec::new();
-        for spec in &manifest.plugins {
-            let granted = |grant: &str| spec.grants.iter().any(|g| g == grant);
+        let registry = Self { all: Arc::new(OnceLock::new()), project: project.clone() };
+        let mut all = Vec::new();
+        for spec in manifest.plugins {
             let state = PluginState {
                 wasi: WasiState::new(&[]),
-                model: model.to_string(),
-                llm: if granted("llm") { Some(LlmClient::spawn(engine, &llm)?) } else { None },
-                workspace: granted("workspace").then(|| manifest.workspace.clone()),
+                model: spec.model.clone().unwrap_or_else(|| model.to_string()),
+                llm: if spec.granted("llm") { Some(LlmClient::spawn(engine, &llm)?) } else { None },
+                workspace: spec.granted("workspace").then(|| project.allowing(&spec.allow)),
+                plugins: spec.granted("plugins").then(|| registry.clone()),
             };
             let mut store = Store::new(engine, state);
             let bindings = PluginModule::instantiate(&mut store, &load(engine, &spec.path)?, &linker)
                 .map_err(|e| anyhow!("plugin '{}': {e}", spec.name))?;
-            plugins.push(Plugin {
-                name: spec.name.clone(),
-                description: spec.description.clone(),
-                store,
-                bindings,
-            });
+            all.push(Plugin { spec, live: Mutex::new((store, bindings)) });
         }
-        Ok(Self(plugins))
+        let _ = registry.all.set(all);
+        Ok(registry)
+    }
+
+    fn all(&self) -> &[Plugin] {
+        self.all.get().map(Vec::as_slice).unwrap_or_default()
     }
 }
 
 impl Tools for Plugins {
+    /// The plugins that fit this project. The check is made on every call, so
+    /// an expert appears as soon as the project gains what it works on.
     fn describe(&mut self) -> String {
-        let tools: Vec<_> = self.0.iter().map(|p| json!({ "name": p.name, "description": p.description })).collect();
+        let fitting = self.all().iter().filter(|p| p.spec.fits(&self.project));
+        let tools: Vec<_> =
+            fitting.map(|p| json!({ "name": p.spec.name, "description": p.spec.description })).collect();
         json!({ "tools": tools }).to_string()
     }
 
     /// `call.name` picks the plugin; its input is the `input` argument.
     fn invoke(&mut self, call: ToolCall) -> Result<String, CallError> {
-        let names = self.0.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
-        let plugin = self.0.iter_mut().find(|p| p.name == call.name).ok_or_else(|| {
+        let plugin = self.all().iter().find(|p| p.spec.name == call.name).ok_or_else(|| {
+            let names = self.all().iter().map(|p| p.spec.name.as_str()).collect::<Vec<_>>().join(", ");
             CallError::NotFound(format!("there is no plugin '{}' (plugins: {names})", call.name))
         })?;
+        let Ok(mut live) = plugin.live.try_lock() else {
+            return Err(CallError::InvalidInput(format!(
+                "plugin '{}' is already running further up this chain of calls",
+                call.name
+            )));
+        };
         let args: Value = serde_json::from_str(&call.args_json).unwrap_or(Value::Null);
         let input = args["input"].as_str().unwrap_or("");
-        plugin
-            .bindings
+        let (store, bindings) = &mut *live;
+        bindings
             .agentwos_core_agent()
-            .call_run(&mut plugin.store, &[message("user", input)])
+            .call_run(store, &[message("user", input)])
             .map_err(|e| CallError::ExecutionFailed(format!("plugin '{}' crashed: {e}", call.name)))?
     }
 }
 
-fn print_plugins(manifest: &Manifest) {
+fn print_plugins(manifest: &Manifest, project: &Workspace) {
+    let or_dash = |items: &[String], sep: &str| if items.is_empty() { "-".to_string() } else { items.join(sep) };
     for p in &manifest.plugins {
-        let grants = if p.grants.is_empty() { "-".to_string() } else { p.grants.join("+") };
-        println!("{:<11} {:<14} {}", p.name, grants, p.description);
+        let fits = if p.fits(project) { ' ' } else { 'x' };
+        let about: String = p.description.chars().take_while(|c| !".:".contains(*c)).collect();
+        println!("{fits} {:<9} {:<21} {:<9} {about}", p.name, or_dash(&p.grants, "+"), or_dash(&p.allow, ","));
     }
 }
 
 /// What the router receives. Text without a `/` goes to the default plugin
 /// when the manifest names one. The router takes its model from a
 /// `model:<id> ` prefix, like `agent-core`.
-fn request(manifest: &Manifest, model: &str, text: &str) -> Vec<Message> {
+fn request(default: Option<&str>, model: &str, text: &str) -> Vec<Message> {
     let text = text.trim();
-    match &manifest.default {
+    match default {
         Some(plugin) if !text.starts_with('/') => vec![message("user", format!("model:{model} /{plugin} {text}"))],
         _ => vec![message("user", format!("model:{model} {text}"))],
     }
 }
 
-pub fn run(engine: &Engine, path: &Path, model: Option<&str>, text: Option<&str>, list: bool) -> Result<()> {
+pub fn run(
+    engine: &Engine,
+    path: &Path,
+    project: Option<PathBuf>,
+    model: Option<&str>,
+    text: Option<&str>,
+    list: bool,
+) -> Result<()> {
     let manifest = Manifest::load(path)?;
+    let project = Workspace::new(project.unwrap_or_else(|| manifest.workspace.clone()), manifest.timeout);
     if list {
-        print_plugins(&manifest);
+        print_plugins(&manifest, &project);
         return Ok(());
     }
     let model = model
         .map(str::to_string)
         .or_else(|| manifest.model.clone())
         .ok_or_else(|| anyhow!("no model: set `model` in the manifest or pass --model"))?;
+    let default = manifest.default.clone();
+    let (router, llm) = (load(engine, &manifest.router)?, load(engine, &manifest.llm)?);
 
-    let plugins = Plugins::spawn(engine, &manifest, &model)?;
-    let mut router = AgentInstance::new(
-        engine,
-        &load(engine, &manifest.router)?,
-        &load(engine, &manifest.llm)?,
-        Box::new(plugins),
-    )?;
+    let interactive = text.is_none();
+    if interactive {
+        println!("AgentWOS harness, model {model}, project {}", project.root().display());
+        println!("Plugins (x: not offered to agents in this project):");
+        print_plugins(&manifest, &project);
+        let rest = default.as_deref().map_or("the model".to_string(), |d| format!("`{d}`"));
+        println!("\n/<plugin> <input> calls a plugin. Anything else goes to {rest}. /help, /exit.\n");
+    }
+
+    let plugins = Plugins::spawn(engine, manifest, &project, &model)?;
+    let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
 
     if let Some(text) = text {
-        println!("{}", router.ask(request(&manifest, &model, text)).map_err(|e| anyhow!(e))?);
+        println!("{}", router.ask(request(default.as_deref(), &model, text)).map_err(|e| anyhow!(e))?);
         return Ok(());
     }
 
-    println!("AgentWOS harness, model {model}. Plugins:");
-    print_plugins(&manifest);
-    let rest = manifest.default.as_deref().map_or("the model".to_string(), |d| format!("`{d}`"));
-    println!("\n/<plugin> <input> calls a plugin. Anything else goes to {rest}. /help, /exit.\n");
     let mut lines = io::stdin().lock().lines();
     loop {
         print!("> ");
@@ -265,7 +326,7 @@ pub fn run(engine: &Engine, path: &Path, model: Option<&str>, text: Option<&str>
             break;
         }
         if !line.is_empty() {
-            match router.ask(request(&manifest, &model, line)) {
+            match router.ask(request(default.as_deref(), &model, line)) {
                 Ok(reply) => println!("{reply}\n"),
                 Err(e) => println!("error: {e}\n"),
             }

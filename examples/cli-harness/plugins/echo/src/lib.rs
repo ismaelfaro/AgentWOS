@@ -1,20 +1,14 @@
-//! `echo` plugin agent: returns the text it receives. The smallest plugin
-//! there is, and a quick check that the harness is wired up.
+//! `echo` plugin agent: returns its input. The smallest plugin there is, and
+//! the one to copy when writing a new one.
 
-wit_bindgen::generate!({
-    world: "plugin-module",
-    path: "../../../../wit/world.wit",
-});
+use kit::*;
 
-use agentwos::core::types::{CallError, Message};
-use exports::agentwos::core::agent::Guest;
+struct Echo;
 
-struct Component;
-
-impl Guest for Component {
-    fn run(input: Vec<Message>) -> Result<String, CallError> {
-        Ok(input.last().map(|m| m.content.clone()).unwrap_or_default())
+impl Guest for Echo {
+    fn run(input: Vec<Message>) -> Reply {
+        Ok(text(&input).to_string())
     }
 }
 
-export!(Component);
+kit::export!(Echo);

@@ -40,7 +40,7 @@ leave policy in prompts. AgentWOS takes the operating-system view instead:
 | Runtime | Wasmtime, Component Model | The browser's WebAssembly, components transpiled with `jco` |
 | Model | Any OpenAI-compatible API: LM Studio, OpenRouter | Needle (35 MB), in the tab |
 | Example | [Mars colony](examples/mars-colony/) (turn-based scenario) | [Tab Jam](examples/tab-jam/) (interactive, tool calls) |
-| Also | [CLI harness](examples/cli-harness/): a router agent with sandboxed plugins | |
+| Also | [CLI harness](examples/cli-harness/): a coding harness of small expert agents | |
 
 ## Quick start
 
@@ -77,9 +77,11 @@ and Python 3 to serve the pages.
 - **[Mars colony](examples/mars-colony/)**: a turn-based simulation. Five
   colonists decide each day what to do, a control filters their actions, and a
   dashboard replays the run.
-- **[CLI harness](examples/cli-harness/)**: a router agent that calls plugins as
-  tools. Each plugin is its own agent with only the grants its manifest gives it:
-  an LLM, one folder, a list of allowed programs.
+- **[CLI harness](examples/cli-harness/)**: a coding harness where every plugin is a
+  small agent. A lead agent edits the project and asks experts (git, Python,
+  Rust, JavaScript, search, review) for the rest; which experts take part
+  depends on the project. Each has only the grants its manifest gives it: an
+  LLM, the project folder, its own programs, the other plugins.
 
 ## Architecture
 

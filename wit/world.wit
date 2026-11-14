@@ -160,6 +160,7 @@ world agent-module {
 world plugin-module {
     import llm;
     import workspace;
+    import tool;
     export agent;
 }
 

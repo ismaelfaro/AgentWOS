@@ -31,6 +31,11 @@ struct Args {
     #[arg(long)]
     list: bool,
 
+    /// With --harness: the project folder the plugins work in. Overrides the
+    /// manifest's `workspace`.
+    #[arg(long)]
+    project: Option<PathBuf>,
+
     /// Scenario WASM component (overrides the manifest).
     #[arg(long)]
     scenario: Option<String>,
@@ -103,10 +108,10 @@ fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     if let Some(path) = &args.harness {
-        return harness::run(&engine, path, args.model.as_deref(), args.message.as_deref(), args.list);
+        return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list);
     }
-    if args.list {
-        bail!("--list needs --harness");
+    if args.list || args.project.is_some() {
+        bail!("--list and --project need --harness");
     }
 
     let manifest = match &args.manifest {

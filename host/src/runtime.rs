@@ -38,6 +38,7 @@ pub mod plugin_world {
         with: {
             "agentwos:core/types": crate::runtime::agent_world::agentwos::core::types,
             "agentwos:core/llm": crate::runtime::agent_world::agentwos::core::llm,
+            "agentwos:core/tool": crate::runtime::agent_world::agentwos::core::tool,
         },
     });
 }
@@ -46,6 +47,7 @@ pub mod control_world {
 }
 
 pub use agent_world::agentwos::core::llm::Host as LlmHost;
+pub use agent_world::agentwos::core::tool::Host as ToolHost;
 pub use agent_world::agentwos::core::types::{CallError, Host as TypesHost, Message, ToolCall};
 
 /// The message inside a `CallError`, for people.
@@ -217,7 +219,7 @@ impl WasiView for AgentState {
 
 impl TypesHost for AgentState {}
 
-impl agent_world::agentwos::core::tool::Host for AgentState {
+impl ToolHost for AgentState {
     fn describe(&mut self) -> String {
         self.tools.describe()
     }

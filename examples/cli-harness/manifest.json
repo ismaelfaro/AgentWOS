@@ -1,41 +1,88 @@
 {
-  "router": "router/target/wasm32-wasip2/release/cli_router.wasm",
+  "router": "target/wasm32-wasip2/release/router.wasm",
   "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
   "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
   "default": "coder",
 
   "workspace": "runs/workspace",
-  "allow": ["python3", "node", "cargo", "rustc", "pytest"],
-  "timeout_seconds": 30,
+  "timeout_seconds": 120,
 
   "plugins": [
     {
-      "name": "echo",
-      "description": "Returns the input unchanged.",
-      "agent": "plugins/echo/target/wasm32-wasip2/release/plugin_echo.wasm"
+      "name": "coder",
+      "description": "Lead coding agent. Given a task, it reads and edits the project's files and asks the expert agents to run, test, search and commit.",
+      "agent": "target/wasm32-wasip2/release/coder.wasm",
+      "grants": ["llm", "workspace", "plugins"]
     },
     {
-      "name": "wordcount",
-      "description": "Counts the words, characters and lines of the input.",
-      "agent": "plugins/wordcount/target/wasm32-wasip2/release/plugin_wordcount.wasm"
+      "name": "project",
+      "description": "Describes the environment: operating system, files at the top of the project, the agents that fit it, and the project's instructions.",
+      "agent": "target/wasm32-wasip2/release/project.wasm",
+      "grants": ["workspace", "plugins"],
+      "allow": ["uname"]
     },
     {
-      "name": "ask",
-      "description": "Answers a question with a language model.",
-      "agent": "plugins/ask/target/wasm32-wasip2/release/plugin_ask.wasm",
-      "grants": ["llm"]
-    },
-    {
-      "name": "workspace",
-      "description": "Files and programs in the workspace folder. Input is one command: write <path> <text>, read <path>, list [path], run <program> [args].",
-      "agent": "plugins/workspace/target/wasm32-wasip2/release/plugin_workspace.wasm",
+      "name": "files",
+      "description": "Files of the project. Input: `list [folder]`, `read <path>`, or `write <path> <text>`.",
+      "agent": "target/wasm32-wasip2/release/files.wasm",
       "grants": ["workspace"]
     },
     {
-      "name": "coder",
-      "description": "Given a task, writes code in the workspace, runs it and fixes it until it works.",
-      "agent": "plugins/coder/target/wasm32-wasip2/release/plugin_coder.wasm",
-      "grants": ["llm", "workspace"]
+      "name": "search",
+      "description": "Finds text in the project's files. Input: `<pattern> [path]`, pattern being a grep regular expression.",
+      "agent": "target/wasm32-wasip2/release/search.wasm",
+      "grants": ["workspace"],
+      "allow": ["grep"]
+    },
+    {
+      "name": "git",
+      "description": "Git expert. Input: a git command without `git`: `status`, `diff`, `log`, `show <ref>`, `add <paths>`, `commit -m \"<message>\"`, `branch`, `switch <branch>`, `stash`, `init`. It refuses to push or to discard work.",
+      "agent": "target/wasm32-wasip2/release/git.wasm",
+      "grants": ["workspace"],
+      "allow": ["git"],
+      "when": [".git"]
+    },
+    {
+      "name": "python",
+      "description": "Python expert. Input: `run <file> [args]`, `test [path]` (pytest or unittest, whichever is installed), or `check <file>` for syntax errors.",
+      "agent": "target/wasm32-wasip2/release/python.wasm",
+      "grants": ["workspace"],
+      "allow": ["python3"],
+      "when": ["*.py", "pyproject.toml", "requirements.txt"]
+    },
+    {
+      "name": "rust",
+      "description": "Rust expert. Input: a cargo command without `cargo`: `check`, `build`, `test`, `run`, `clippy`, `fmt`, `init`.",
+      "agent": "target/wasm32-wasip2/release/rust.wasm",
+      "grants": ["workspace"],
+      "allow": ["cargo"],
+      "when": ["Cargo.toml", "*.rs"]
+    },
+    {
+      "name": "node",
+      "description": "JavaScript expert. Input: `run <file> [args]` (node), `test` (npm test), or `script <name>` (npm run).",
+      "agent": "target/wasm32-wasip2/release/node.wasm",
+      "grants": ["workspace"],
+      "allow": ["node", "npm"],
+      "when": ["package.json", "*.js", "*.mjs"]
+    },
+    {
+      "name": "review",
+      "description": "Reviews the uncommitted changes with a model. Input: optionally, what to pay attention to.",
+      "agent": "target/wasm32-wasip2/release/review.wasm",
+      "grants": ["llm", "plugins"],
+      "when": [".git"]
+    },
+    {
+      "name": "ask",
+      "description": "Answers a general question with a model. It knows nothing about the project.",
+      "agent": "target/wasm32-wasip2/release/ask.wasm",
+      "grants": ["llm"]
+    },
+    {
+      "name": "echo",
+      "description": "Returns its input unchanged. A wiring check.",
+      "agent": "target/wasm32-wasip2/release/echo.wasm"
     }
   ]
 }
