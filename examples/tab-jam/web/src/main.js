@@ -1,10 +1,11 @@
 // Tab Jam UI: sends cues to the kernel worker, plays what the stage renders
 // with WebAudio, and shows what every agent and control did.
 
+import { createPad } from "./pads.js";
 import { createSynth } from "./synth.js";
 
 const $ = (id) => document.getElementById(id);
-const worker = new Worker(new URL("worker.js?v=" + __BUILD_ID__, import.meta.url), { type: "module" });
+const worker = new Worker(new URL("worker.js", import.meta.url), { type: "module" });
 
 const COLORS = { Drummer: "--drums", Bassist: "--bass", Lead: "--lead" };
 const ROWS = ["lead", "bass", "hat", "snare", "kick"];
@@ -13,6 +14,7 @@ const ROW_COLOR = { lead: "--lead", bass: "--bass", hat: "--drums", snare: "--dr
 const MAX_LOG_ENTRIES = 40;
 let agents = [];
 let briefs = [];
+let pads = [];
 let state = null;
 let cueId = 0;
 
@@ -51,8 +53,8 @@ function initAudio() {
 // part of the repository, so without it the synth voice plays.
 async function loadLeadSample() {
   try {
-    const meta = await (await fetch("samples/lead.json", { cache: "no-store" })).json();
-    const data = await (await fetch("samples/" + meta.file, { cache: "no-store" })).arrayBuffer();
+    const meta = await (await fetch(new URL("samples/lead.json", import.meta.url))).json();
+    const data = await (await fetch(new URL("samples/" + meta.file, import.meta.url))).arrayBuffer();
     audio.synth.setLeadSample(await audio.ctx.decodeAudioData(data), meta.midi);
     audio.leadSample = meta.file;
     showMeta();
@@ -134,6 +136,19 @@ function settingOf(agent) {
 
 function renderBand() {
   for (const a of agents) $("setting-" + a.agent).textContent = settingOf(a.agent);
+  for (const pad of pads) pad.show(state);
+}
+
+/** Turns what the user asked for on a pad into tool calls, one per tool. */
+function padCalls(desc, change) {
+  const calls = new Map();
+  for (const key of ["x", "y"]) {
+    if (!(key in change)) continue;
+    const axis = desc[key];
+    if (!calls.has(axis.tool)) calls.set(axis.tool, { name: axis.tool, arguments: {} });
+    calls.get(axis.tool).arguments[axis.arg] = change[key];
+  }
+  return [...calls.values()];
 }
 
 /** What an agent can be asked for, read from its tool declarations. */
@@ -144,16 +159,23 @@ function optionsOf(index) {
         : p.type === "integer" ? `${name}: a number` : `${name}: ${p.description ?? "text"}`));
 }
 
-function buildBand() {
-  $("band").replaceChildren(...agents.map((a, i) =>
-    el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--accent"})` }, [
+function buildBand(padDescriptions) {
+  pads = [];
+  $("band").replaceChildren(...agents.map((a, i) => {
+    const desc = padDescriptions.find((p) => p.agent === i);
+    const pad = desc && createPad(desc, a.agent, (change) => {
+      for (const call of padCalls(desc, change)) worker.postMessage({ type: "call", id: ++cueId, agent: i, call });
+    });
+    if (pad) pads.push(pad);
+    return el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--accent"})` }, [
       el("h3", {}, a.agent),
       el("div", { class: "muted" }, a.role),
       el("div", { class: "setting", id: "setting-" + a.agent }),
-      el("div", { class: "last", id: "last-" + a.agent }, "waiting for a cue"),
-      el("div", { class: "meter", title: "model confidence of the last call" }, el("div", { id: "meter-" + a.agent })),
-      el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
-    ])));
+      el("div", { class: "last", id: "last-" + a.agent }, "touch the pad or send a cue"),
+      el("div", { class: "meter", title: "model confidence of the last cue" }, el("div", { id: "meter-" + a.agent })),
+      pad ? pad.element : el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
+    ]);
+  }));
   renderBand();
 }
 
@@ -178,7 +200,7 @@ function logCue(result) {
         const outcome = c.error ? `rejected by the stage: ${c.error}` : c.delivered ? c.result : "not applied";
         lines.push(el("div", { class: "line" }, [
           el("strong", {}, turn.agent), " ", el("code", {}, callText(c.call)),
-          ` confidence ${attempt.confidence.toFixed(2)}, ${turn.latency_ms} ms`,
+          attempt.confidence === null ? " from the pad" : ` confidence ${attempt.confidence.toFixed(2)}, ${turn.latency_ms} ms`,
           ...c.verdicts.map((v) => el("span", { class: "tag " + v.verdict, title: v.detail }, `${v.module}: ${v.verdict}`)),
           c.result?.startsWith("no change") ? el("span", { class: "tag" }, "no change") : null,
           el("div", { class: "muted" }, c.verdicts
@@ -191,7 +213,7 @@ function logCue(result) {
     }
     if (last) {
       $("last-" + turn.agent).textContent = last.text;
-      $("meter-" + turn.agent).style.width = Math.round(last.confidence * 100) + "%";
+      if (last.confidence !== null) $("meter-" + turn.agent).style.width = Math.round(last.confidence * 100) + "%";
       const card = $("agent-" + turn.agent);
       card.classList.remove("flash");
       void card.offsetWidth;
@@ -208,12 +230,18 @@ function logCue(result) {
   const signature = result.text.trim().toLowerCase() + "|" + JSON.stringify(result.turns.map((t) =>
     t.attempts.map((a) => [a.ignored, a.calls.map((c) => [c.call, c.verdicts.map((v) => v.verdict), c.result, c.error])])));
   const top = log.firstElementChild;
-  if (top?.dataset.signature === signature) {
+  // A drag on a pad sends many calls; keep one row per pad and tool, showing the latest.
+  const padKey = result.source === "pad"
+    ? result.text + ":" + result.turns[0].attempts[0].calls[0].call.name
+    : null;
+  if (padKey) {
+    [...log.children].slice(0, 4).find((e) => e.dataset.pad === padKey)?.remove();
+  } else if (top?.dataset.signature === signature) {
     top.dataset.count = Number(top.dataset.count) + 1;
     top.querySelector(".times").textContent = ` x${top.dataset.count}`;
     return;
   }
-  const entry = el("div", { class: "entry", "data-signature": signature, "data-count": 1 },
+  const entry = el("div", { class: "entry", "data-signature": signature, "data-count": 1, "data-pad": padKey },
     [el("div", { class: "cue" }, [result.text, el("span", { class: "times muted" })]), ...lines]);
   log.prepend(entry);
   while (log.children.length > MAX_LOG_ENTRIES) log.lastElementChild.remove();
@@ -237,7 +265,7 @@ worker.onmessage = ({ data }) => {
     for (const id of ["conductor", "band", "roll-card", "log-card"]) $(id).hidden = false;
     audio.metaBase = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB - ${agents.length} agents - ${data.setup.key} - no server`;
     showMeta();
-    buildBand();
+    buildBand(data.setup.pads ?? []);
     setStatus("live", "live");
     worker.postMessage({ type: "render", bar: 0 });
   } else if (data.type === "bar") {

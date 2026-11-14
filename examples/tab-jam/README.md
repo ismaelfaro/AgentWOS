@@ -35,7 +35,27 @@ you: "drums play a breakbeat and make the melody dark"
   blocks a frantic lead at 150 bpm or more, and refuses to silence the whole band.
 - **The stage** owns the band state and renders each bar as notes. The page plays
   them with WebAudio.
-- **The audit log** shows every cue, tool call, confidence and verdict.
+- **The audit log** shows every cue, pad gesture, tool call, confidence and verdict.
+
+## Touch pads
+
+Each agent card has an XY pad for its two main settings:
+
+| Agent | Across | Up |
+|---|---|---|
+| Drummer | style | tempo (bpm) |
+| Bassist | root note | movement |
+| Lead | mood | randomness (0 repeats one phrase, 100 changes every note) |
+
+Drag on a pad, or focus it and use the arrow keys. The crosshair shows the
+values the band is using. A dashed ring shows where you asked for; the two
+differ when the sound engineer changed or blocked the call, for example when
+you drag the tempo above 160.
+
+A pad sends the tool call straight to the kernel, without asking the model, so
+it responds while you drag. It still goes through the control chain and the
+audit log, and a text cue moves the crosshair too. The pads are described by the
+stage (`pads` in `setup`), so the page has no band-specific pad code.
 
 ## Run
 

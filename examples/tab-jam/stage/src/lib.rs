@@ -30,6 +30,8 @@ struct Band {
     bass_root: &'static str,
     bass_move: &'static str,
     lead: &'static str,
+    /// 0 repeats one phrase every bar; 100 picks every note afresh.
+    lead_randomness: u32,
 }
 
 thread_local! {
@@ -39,6 +41,7 @@ thread_local! {
         bass_root: "C",
         bass_move: "steady",
         lead: "calm",
+        lead_randomness: 30,
     }) };
 }
 
@@ -152,7 +155,7 @@ fn bass(root: u8, movement: &str, out: &mut Vec<Value>) {
     }
 }
 
-fn lead(mood: &str, root: u8, bar: u32, out: &mut Vec<Value>) {
+fn lead(mood: &str, randomness: u32, root: u8, bar: u32, out: &mut Vec<Value>) {
     // (octave as midi C, allowed steps, chance to play out of 100, note length, scale)
     let every = |n: usize| (0..STEPS_PER_BAR).step_by(n).collect::<Vec<_>>();
     let (base, steps, density, len, scale): (u8, Vec<u32>, u32, u32, &[u8]) = match mood {
@@ -163,13 +166,28 @@ fn lead(mood: &str, root: u8, bar: u32, out: &mut Vec<Value>) {
         "jazzy" => (60, vec![0, 3, 4, 7, 8, 11, 12, 15], 65, 2, &BLUES),
         _ => return,
     };
-    let mut next = rng(bar * 31 + mood.len() as u32);
+    // Two streams: `phrase` is the same every bar, `wild` changes with the bar.
+    // Randomness is the chance that a decision comes from the wild stream.
+    let mut phrase = rng(mood.len() as u32 * 7919 + 1);
+    let mut wild = rng(bar * 31 + mood.len() as u32);
+    let mut chooser = rng(bar * 131 + 7);
+    let mut draw = |limit: u32| {
+        let (p, w) = (phrase(), wild());
+        (if chooser() % 100 < randomness { w } else { p }) % limit
+    };
     for step in steps {
-        if step > 0 && next() % 100 >= density {
+        let plays = draw(100) < density;
+        let degree = draw(scale.len() as u32) as usize;
+        let leap = draw(100);
+        if step > 0 && !plays {
             continue;
         }
         // The first note of the bar lands on the bass root so the band locks together.
-        let pitch = if step == 0 { root } else { scale[(next() % scale.len() as u32) as usize] };
+        let mut pitch = if step == 0 { root } else { scale[degree] };
+        // A wild melody also jumps an octave now and then.
+        if step > 0 && leap < randomness / 4 {
+            pitch += 12;
+        }
         out.push(note("lead", step, len, base + pitch, 85));
     }
 }
@@ -211,6 +229,20 @@ impl Guest for Component {
                 "Set the tempo to 140",
                 "Set the tempo to 300",
                 "Silence the drums and make the melody bright",
+                "Set the lead randomness to 90",
+            ],
+            // Touch pads for the UI: two settings per agent, each mapped to one
+            // tool argument and to the state field that shows its current value.
+            "pads": [
+                { "agent": 0,
+                  "x": { "label": "style", "tool": "set_drum_pattern", "arg": "style", "state": "drums", "values": DRUM_STYLES },
+                  "y": { "label": "bpm", "tool": "set_tempo", "arg": "bpm", "state": "tempo", "min": 50, "max": 200, "step": 5 } },
+                { "agent": 1,
+                  "x": { "label": "root", "tool": "set_bass_line", "arg": "root", "state": "bass_root", "values": ["C", "D", "Eb", "F", "G", "Ab", "Bb"] },
+                  "y": { "label": "movement", "tool": "set_bass_line", "arg": "movement", "state": "bass_movement", "values": BASS_MOVES } },
+                { "agent": 2,
+                  "x": { "label": "mood", "tool": "set_lead_mood", "arg": "mood", "state": "lead", "values": LEAD_MOODS },
+                  "y": { "label": "randomness", "tool": "set_lead_randomness", "arg": "percent", "state": "lead_randomness", "min": 0, "max": 100, "step": 5 } },
             ],
         })
         .to_string()
@@ -240,10 +272,12 @@ impl Guest for Component {
             }),
             _ => json!({
                 "system": "You are the lead melody player. Only act on requests about the melody or lead.",
-                "aliases": ["lead", "melody", "solo", "synth"],
+                "aliases": ["lead", "melody", "solo", "synth", "randomness"],
                 "tools": [
                     function("set_lead_mood", "Change how the lead melody feels.",
                         json!({ "mood": { "type": "string", "enum": LEAD_MOODS } }), &["mood"]),
+                    function("set_lead_randomness", "Set how random or unpredictable the lead melody is, as a percent from 0 to 100.",
+                        json!({ "percent": { "type": "integer" } }), &["percent"]),
                 ],
             }),
         }
@@ -289,6 +323,15 @@ impl Guest for Component {
                     let changed = set(&mut b.lead, pick(&LEAD_MOODS, &args["mood"], "mood")?);
                     Ok(outcome(changed, format!("lead {}", b.lead)))
                 }
+                (2, "set_lead_randomness") => {
+                    let percent = args["percent"].as_u64().ok_or("`percent` must be a whole number")?;
+                    if percent > 100 {
+                        return Err(format!("`percent` must be between 0 and 100, got {percent}"));
+                    }
+                    let changed = b.lead_randomness != percent as u32;
+                    b.lead_randomness = percent as u32;
+                    Ok(outcome(changed, format!("lead randomness {percent}%")))
+                }
                 _ => Err(format!("agent {agent} has no tool named '{name}'")),
             }
         })
@@ -301,7 +344,7 @@ impl Guest for Component {
             let mut notes = Vec::new();
             drums(b.drums, tick, &mut notes);
             bass(root, b.bass_move, &mut notes);
-            lead(b.lead, root, tick, &mut notes);
+            lead(b.lead, b.lead_randomness, root, tick, &mut notes);
             json!({ "bar": tick, "tempo": b.tempo, "notes": notes }).to_string()
         })
     }
@@ -315,6 +358,7 @@ impl Guest for Component {
                 "bass_root": b.bass_root,
                 "bass_movement": b.bass_move,
                 "lead": b.lead,
+                "lead_randomness": b.lead_randomness,
                 "key": "C minor",
             })
             .to_string()

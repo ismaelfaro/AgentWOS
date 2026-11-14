@@ -29,23 +29,26 @@ fetch_verified cactus.wasm "4198b30795ded7739fe6c9e80bf26d5a844767c081574d40c8dc
 cd "$web"
 [ -d node_modules ] || npm install --silent
 rm -rf gen dist
+# Every build gets its own asset folder, so a browser or proxy can never pair
+# files of two builds, whatever it does with query strings.
+build_id="$(date +%s)"
+assets="dist/$build_id"
 transpile() { # wasm name
   npx jco transpile "$1" -o "gen/$2" --name "$2" --instantiation async -q
-  mkdir -p "dist/wasm/$2" && cp gen/"$2"/*.wasm "dist/wasm/$2/"
+  mkdir -p "$assets/wasm/$2" && cp gen/"$2"/*.wasm "$assets/wasm/$2/"
 }
 transpile "$root/modules/actor/target/wasm32-wasip2/release/actor.wasm" actor
 transpile "$here/stage/target/wasm32-wasip2/release/tab_jam_stage.wasm" stage
 transpile "$here/controls/sound-engineer/target/wasm32-wasip2/release/sound_engineer.wasm" sound-engineer
 
-build_id="$(date +%s)"
 # Generated code and cactus.js keep Node-only branches that never run in a browser.
-npx esbuild src/worker.js src/main.js src/synth.js --bundle --format=esm --target=es2022 --outdir=dist \
+npx esbuild src/worker.js src/main.js src/synth.js --bundle --format=esm --target=es2022 --outdir="$assets" \
   --external:node:* --external:fs --external:path --external:crypto --external:url --external:module \
-  --define:__BUILD_ID__="\"$build_id\"" --log-level=warning
+  --log-level=warning
+# The engine is pinned, so it lives outside the per-build folder and stays cached.
 cp vendor/cactus.wasm dist/
-# The build id in every asset URL keeps browsers from mixing files of two builds.
-sed "s/main.js/main.js?v=$build_id/; s/style.css/style.css?v=$build_id/" src/index.html > dist/index.html
-cp src/style.css dist/
+cp src/style.css "$assets/"
+sed "s#main.js#$build_id/main.js#; s#style.css#$build_id/style.css#" src/index.html > dist/index.html
 # Optional local recordings for the sampled lead (git-ignored; see README).
-if [ -d samples ]; then cp -R samples dist/samples; fi
+if [ -d samples ]; then cp -R samples "$assets/samples"; fi
 echo "built: $web/dist"

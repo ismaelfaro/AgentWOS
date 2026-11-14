@@ -55,3 +55,25 @@ canvas { width:100%; height:auto; display:block; border-radius:6px; }
 @media (prefers-reduced-motion: reduce) { .agent.flash { animation:none; } }
 .volume { display:flex; align-items:center; gap:6px; }
 .volume input { accent-color:var(--accent); width:110px; }
+.pad { display:grid; grid-template-columns:auto minmax(0, 1fr); gap:4px 6px; margin-top:10px; font-size:10px; color:var(--muted); }
+.pad-area { position:relative; height:170px; border:1px solid var(--line); border-radius:8px; overflow:hidden; cursor:crosshair;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+  background-color:var(--soft);
+  background-image:linear-gradient(to right, var(--line) 1px, transparent 1px), linear-gradient(to bottom, var(--line) 1px, transparent 1px); }
+.pad-area:focus-visible { outline:2px solid var(--c); outline-offset:2px; }
+.cross { position:absolute; background:var(--c); opacity:.85; pointer-events:none; transition:left .12s, top .12s; }
+.cross-v { top:0; bottom:0; width:2px; margin-left:-1px; }
+.cross-h { left:0; right:0; height:2px; margin-top:-1px; }
+.pad-dot { position:absolute; width:16px; height:16px; margin:-8px 0 0 -8px; border-radius:50%; background:var(--c);
+  box-shadow:0 0 0 4px color-mix(in srgb, var(--c) 30%, transparent); pointer-events:none; transition:left .12s, top .12s; }
+.pad-ghost { position:absolute; width:26px; height:26px; margin:-13px 0 0 -13px; border-radius:50%; border:2px dashed var(--ink);
+  opacity:0; pointer-events:none; transition:opacity .3s; }
+.pad-ghost.on { opacity:.7; }
+.pad-readout { grid-column:1 / -1; font-size:11px; color:var(--ink); }
+.pad-y { display:flex; flex-direction:column; justify-content:space-between; text-align:right; min-width:26px; }
+.pad-x { display:flex; justify-content:space-between; grid-column:2; }
+.pad-y.cells, .pad-x.cells { justify-content:stretch; }
+.pad-y.cells span { flex:1; display:flex; align-items:center; justify-content:flex-end; }
+.pad-x.cells span { flex:1; text-align:center; line-height:1.15; overflow-wrap:anywhere; padding:0 1px; }
+.pad-corner { font-size:9px; align-self:start; white-space:nowrap; }
+@media (prefers-reduced-motion: reduce) { .cross, .pad-dot { transition:none; } }

@@ -103,5 +103,24 @@ check("frantic allowed at 120 bpm", r.state.lead === "frantic");
 r = run("Tell me a joke");
 check("unrelated cue changes nothing", r.turns.every((t) => t.attempts.length === 0));
 
+// Pads: direct tool calls that skip the model but not the controls.
+check("stage describes one pad per agent", kernel.setup.pads.length === 3);
+let p = kernel.call(0, { name: "set_tempo", arguments: { bpm: 200 } }, "pad");
+check("pad tempo 200 is clamped by the engineer", p.state.tempo === 160 && p.turns[0].attempts[0].calls[0].verdicts[0].verdict === "modify");
+p = kernel.call(0, { name: "set_drum_pattern", arguments: { style: "jazz" } }, "pad");
+check("pad sets the drum style", p.state.drums === "jazz");
+p = kernel.call(1, { name: "set_bass_line", arguments: { root: "G" } }, "pad");
+check("pad changes only the bass root", p.state.bass_root === "G" && p.state.bass_movement === "walking");
+p = kernel.call(2, { name: "set_lead_mood", arguments: { mood: "bright" } }, "pad");
+const leadOf = (bar) => JSON.stringify(kernel.render(bar).notes.filter((n) => n.inst === "lead").map((n) => [n.step, n.midi]));
+kernel.call(2, { name: "set_lead_randomness", arguments: { percent: 0 } }, "pad");
+check("randomness 0 repeats the same phrase", leadOf(3) === leadOf(4) && leadOf(4) === leadOf(9));
+kernel.call(2, { name: "set_lead_randomness", arguments: { percent: 100 } }, "pad");
+check("randomness 100 changes every bar", leadOf(3) !== leadOf(4) && leadOf(4) !== leadOf(9));
+r = run("Set the lead randomness to 40");
+check("text cue sets lead randomness", r.state.lead_randomness === 40, `randomness=${r.state.lead_randomness}`);
+r = run("Make the melody dark");
+check("mood cue still works with two lead tools", r.state.lead === "dark");
+
 console.log(`\n${failed ? failed + " FAILED" : "all checks passed"}`);
 process.exit(failed ? 1 : 0);

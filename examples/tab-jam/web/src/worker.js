@@ -18,13 +18,13 @@ let kernel = null;
 
 async function init() {
   const progress = (label) => (loaded, total) => postMessage({ type: "progress", label, loaded, total });
-  const wasmBinary = await fetchCached(new URL("cactus.wasm", base).href, CACHE, progress("engine"));
+  const wasmBinary = await fetchCached(new URL("../cactus.wasm", base).href, CACHE, progress("engine"));
   const modelBytes = await fetchCached(MODEL_URL, CACHE, progress("model"));
   postMessage({ type: "progress", label: "starting", loaded: 1, total: 1 });
 
   const needle = await createNeedle({ createCactus, wasmBinary, modelBytes });
   const shim = { cli, clocks, io, random };
-  const wasm = (name) => coreModuleLoader(new URL(`wasm/${name}/`, base), __BUILD_ID__);
+  const wasm = (name) => coreModuleLoader(new URL(`wasm/${name}/`, base));
 
   const stage = (await instantiateStage(wasm("stage"), wasiImports(shim))).stage;
   const control = (await instantiateControl(wasm("sound-engineer"), wasiImports(shim))).control;
@@ -57,6 +57,8 @@ self.onmessage = ({ data }) => {
       init().catch(fail);
     } else if (data.type === "cue") {
       postMessage({ type: "cue-result", id: data.id, result: kernel.cue(data.text) });
+    } else if (data.type === "call") {
+      postMessage({ type: "cue-result", id: data.id, result: kernel.call(data.agent, data.call, "pad") });
     } else if (data.type === "render") {
       postMessage({ type: "bar", bar: data.bar, data: kernel.render(data.bar) });
     }

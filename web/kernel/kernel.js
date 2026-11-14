@@ -24,15 +24,11 @@ export function wasiImports(shim, extra = {}) {
 
 /**
  * Fetches and compiles the core wasm files of one transpiled component.
- * `version` goes into the URL so a rebuilt page never pairs new JS glue with
- * core modules the browser cached from an older build.
+ * Serve each build from its own folder: JS glue paired with core modules cached
+ * from an older build fails at instantiation.
  */
-export function coreModuleLoader(baseUrl, version = "") {
-  return (path) => {
-    const url = new URL(path, baseUrl);
-    if (version) url.searchParams.set("v", version);
-    return WebAssembly.compileStreaming(fetch(url));
-  };
+export function coreModuleLoader(baseUrl) {
+  return (path) => WebAssembly.compileStreaming(fetch(new URL(path, baseUrl)));
 }
 
 /**
@@ -99,10 +95,37 @@ export function createKernel({ stage, actors, controls }) {
     return { text, turns, state: JSON.parse(stage.state()) };
   }
 
+  /**
+   * Applies one tool call for an agent without asking the model, for direct
+   * manipulation in a UI. It still goes through the control chain, so a control
+   * can modify or block it exactly as it would a call the model proposed.
+   */
+  function call(agentIndex, toolCall, source = "direct") {
+    const agent = agents[agentIndex];
+    const started = performance.now();
+    const { delivered, verdicts } = inspect(agent.agent, toolCall);
+    const record = { call: toolCall, delivered, verdicts, result: null, error: null };
+    if (delivered) {
+      try {
+        record.result = stage.apply(agentIndex, JSON.stringify(delivered));
+      } catch (e) {
+        record.error = String(e.payload ?? e.message ?? e);
+      }
+    }
+    const turn = {
+      agent: agent.agent,
+      attempts: [{ clause: source, confidence: null, calls: [record], ignored: null }],
+      error: null,
+      latency_ms: Math.round(performance.now() - started),
+    };
+    return { text: `${source}: ${agent.agent}`, source, turns: [turn], state: JSON.parse(stage.state()) };
+  }
+
   return {
     setup,
     agents,
     cue,
+    call,
     state: () => JSON.parse(stage.state()),
     render: (tick) => JSON.parse(stage.render(tick)),
     briefs: () => agents.map((_, i) => JSON.parse(stage.brief(i))),
