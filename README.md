@@ -222,6 +222,21 @@ latest turn.
 - **`no scenario loaded`**: pass `--manifest` or `--scenario` together with `--colony`.
 - **Empty dashboard**: no `log` path is set, or the first turn has not finished yet.
 
+## Design notes
+
+The [design documents](design/README.md) describe where AgentWOS is going: a
+distributed operating system for agents with everything in WASM. They are a
+proposal, not implemented yet.
+
+- [OS model](design/os-model.md): kernel, processes, system calls, and the rule
+  that only the kernel is not WASM.
+- [Protocol](design/protocol.md): identity, envelope, policy, delegation and
+  record; who may talk to whom, and on whose behalf.
+- [Distribution](design/distribution.md): realms, pools of experts and swarms
+  across kernels.
+- [Manifest](design/manifest.md): one resource format for every mode.
+- [Roadmap](design/roadmap.md): order of work and open questions.
+
 ## Next phases
 
 1. **Dynamic registry**: `attach(uri, interface)` so an agent can load a tool at
