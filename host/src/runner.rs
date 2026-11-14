@@ -68,9 +68,7 @@ pub fn run(c: &Components, days: u32, model: &str, log_path: Option<&Path>) -> R
             let messages = scenario.turn_messages(i as u32)?;
 
             let t0 = Instant::now();
-            let reply = instances[i].ask(messages.into_iter().map(|(role, content)| {
-                crate::runtime::agent_message(role, content)
-            }).collect());
+            let reply = instances[i].ask(messages);
             let latency_ms = t0.elapsed().as_millis() as u64;
 
             let (raw, error) = match reply {

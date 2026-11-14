@@ -1,24 +1,35 @@
 mod control;
+mod harness;
 mod runner;
 mod runtime;
+mod workspace;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use clap::Parser;
 use serde_json::Value;
 use wasmtime::{Config, Engine};
 
-use runtime::{agent_message, AgentInstance, Components};
+use runtime::{message, AgentInstance, Components};
 
 const DEFAULT_MODEL: &str = "local/google/gemma-4-e4b";
 
 #[derive(Parser)]
 #[command(about = "Host runtime for agents, tools, LLM clients, scenarios and OS controls packaged as WASM components")]
 struct Args {
-    /// Manifest JSON (scenario, controls, model, days, log). Relative paths resolve from its folder.
+    /// Scenario manifest JSON (scenario, controls, model, days, log). Relative paths resolve from its folder.
     #[arg(long)]
     manifest: Option<PathBuf>,
+
+    /// Harness manifest JSON: a router agent plus plugin agents. With
+    /// --message it answers once; without it, it opens a prompt.
+    #[arg(long)]
+    harness: Option<PathBuf>,
+
+    /// With --harness: list the plugins and exit.
+    #[arg(long)]
+    list: bool,
 
     /// Scenario WASM component (overrides the manifest).
     #[arg(long)]
@@ -28,7 +39,7 @@ struct Args {
     #[arg(long = "control")]
     controls: Vec<String>,
 
-    /// Model for scenario runs (local/ or openrouter/ prefix).
+    /// Model (local/ or openrouter/ prefix). Overrides the manifest.
     #[arg(long)]
     model: Option<String>,
 
@@ -52,9 +63,9 @@ struct Args {
     #[arg(long, default_value = "modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm")]
     llm: String,
 
-    /// Message for a single-agent run.
-    #[arg(long, default_value = "hello agent")]
-    message: String,
+    /// Message for a single-agent or harness run.
+    #[arg(long)]
+    message: Option<String>,
 }
 
 #[derive(Default)]
@@ -87,36 +98,32 @@ impl Manifest {
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    let mut config = Config::new();
+    config.wasm_component_model(true);
+    let engine = Engine::new(&config)?;
+
+    if let Some(path) = &args.harness {
+        return harness::run(&engine, path, args.model.as_deref(), args.message.as_deref(), args.list);
+    }
+    if args.list {
+        bail!("--list needs --harness");
+    }
+
     let manifest = match &args.manifest {
         Some(p) => Manifest::load(p)?,
         None => Manifest::default(),
     };
-
     let scenario = args.scenario.or(manifest.scenario);
     let controls = if args.controls.is_empty() { manifest.controls } else { args.controls };
     let model = args.model.or(manifest.model).unwrap_or_else(|| DEFAULT_MODEL.to_string());
-    let days = args.colony.or(manifest.days);
-    let log = args.log.or(manifest.log);
+    let comps = Components::load(engine, &args.agent, &args.tool, &args.llm, scenario.as_deref(), &controls)?;
 
-    let mut config = Config::new();
-    config.wasm_component_model(true);
-    let comps = Components::load(
-        Engine::new(&config)?,
-        &args.agent,
-        &args.tool,
-        &args.llm,
-        scenario.as_deref(),
-        &controls,
-    )?;
-
-    if let Some(days) = days {
-        return runner::run(&comps, days, &model, log.as_deref());
+    if let Some(days) = args.colony.or(manifest.days) {
+        return runner::run(&comps, days, &model, args.log.or(manifest.log).as_deref());
     }
 
     let mut agent = AgentInstance::spawn(&comps)?;
-    match agent.ask(vec![agent_message("user".into(), args.message)]) {
-        Ok(s) => println!("{s}"),
-        Err(e) => eprintln!("{e}"),
-    }
+    let text = args.message.unwrap_or_else(|| "hello agent".into());
+    println!("{}", agent.ask(vec![message("user", text)]).map_err(|e| anyhow!(e))?);
     Ok(())
 }

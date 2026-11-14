@@ -1,0 +1,40 @@
+{
+  "router": "router/target/wasm32-wasip2/release/cli_router.wasm",
+  "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
+  "model": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+
+  "workspace": "runs/workspace",
+  "allow": ["python3", "node", "cargo", "rustc", "pytest"],
+  "timeout_seconds": 30,
+
+  "plugins": [
+    {
+      "name": "echo",
+      "description": "Returns the input unchanged.",
+      "agent": "plugins/echo/target/wasm32-wasip2/release/plugin_echo.wasm"
+    },
+    {
+      "name": "wordcount",
+      "description": "Counts the words, characters and lines of the input.",
+      "agent": "plugins/wordcount/target/wasm32-wasip2/release/plugin_wordcount.wasm"
+    },
+    {
+      "name": "ask",
+      "description": "Answers a question with a language model.",
+      "agent": "plugins/ask/target/wasm32-wasip2/release/plugin_ask.wasm",
+      "grants": ["llm"]
+    },
+    {
+      "name": "workspace",
+      "description": "Files and programs in the workspace folder. Input is one command: write <path> <text>, read <path>, list [path], run <program> [args].",
+      "agent": "plugins/workspace/target/wasm32-wasip2/release/plugin_workspace.wasm",
+      "grants": ["workspace"]
+    },
+    {
+      "name": "coder",
+      "description": "Given a task, writes code in the workspace, runs it and fixes it until it works.",
+      "agent": "plugins/coder/target/wasm32-wasip2/release/plugin_coder.wasm",
+      "grants": ["llm", "workspace"]
+    }
+  ]
+}

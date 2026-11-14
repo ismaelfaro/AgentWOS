@@ -1,11 +1,10 @@
 use anyhow::Result;
 use serde_json::{json, Value};
-use wasmtime::component::Linker;
 use wasmtime::Store;
 
 use crate::runtime::control_world::exports::agentwos::core::control::Verdict;
 use crate::runtime::control_world::ControlModule;
-use crate::runtime::{Components, WasiState};
+use crate::runtime::{plain_store, Components, WasiState};
 
 struct ControlInstance {
     name: String,
@@ -31,9 +30,7 @@ impl ControlChain {
             .controls
             .iter()
             .map(|(name, comp)| {
-                let mut store = Store::new(&c.engine, WasiState::new(&[]));
-                let mut linker = Linker::<WasiState>::new(&c.engine);
-                wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+                let (mut store, linker) = plain_store(&c.engine)?;
                 let bindings = ControlModule::instantiate(&mut store, comp, &linker)?;
                 Ok(ControlInstance { name: name.clone(), store, bindings })
             })

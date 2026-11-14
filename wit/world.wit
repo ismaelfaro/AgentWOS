@@ -36,6 +36,29 @@ interface llm {
     complete: func(messages: list<message>, model: string) -> result<string, call-error>;
 }
 
+/// Host-mediated files and processes for plugin agents. Paths are relative to
+/// the harness workspace, and a program runs only if the host allowlists it.
+interface workspace {
+    use types.{call-error};
+
+    record file-entry {
+        path: string,
+        kind: string,
+        bytes: u64,
+    }
+
+    record exec-result {
+        status: s32,
+        stdout: string,
+        stderr: string,
+    }
+
+    read: func(path: string) -> result<string, call-error>;
+    write: func(path: string, contents: string) -> result<string, call-error>;
+    list-files: func(path: string) -> result<list<file-entry>, call-error>;
+    exec: func(program: string, args: list<string>) -> result<exec-result, call-error>;
+}
+
 interface agent {
     use types.{message, call-error};
 
@@ -127,6 +150,16 @@ interface stage {
 world agent-module {
     import llm;
     import tool;
+    export agent;
+}
+
+/// A plugin agent for a harness: message in, text out. A plugin may import
+/// `llm` and `workspace`, but each one only works when the harness manifest
+/// grants it to that plugin; otherwise the call returns an error. A plugin
+/// never gets `wasi:http`, the filesystem or processes directly.
+world plugin-module {
+    import llm;
+    import workspace;
     export agent;
 }
 

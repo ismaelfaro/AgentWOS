@@ -48,8 +48,10 @@ Principles:
 ## Layout
 
 - `wit/world.wit`: interfaces `types`, `tool`, `llm`, `agent`, `control`, `scenario`,
-  and for tool-calling agents `tool-llm`, `actor`, `stage`.
+  `workspace`, and for tool-calling agents `tool-llm`, `actor`, `stage`.
 - `host/src/runtime.rs`: WASI, bindings, component loading and instantiation.
+- `host/src/harness.rs`: plugin harness: manifest, plugin registry, prompt.
+- `host/src/workspace.rs`: the folder and programs a plugin may be granted.
 - `host/src/control.rs`: control chain.
 - `host/src/runner.rs`: scenario runner and log writer.
 - `host/src/main.rs`: CLI and manifest loading.
@@ -63,6 +65,9 @@ Principles:
   the control chain, and provides Needle (a 35 MB tool-calling model) as `tool-llm`.
 - `examples/tab-jam/`: browser example: a band of agents you conduct in plain
   English, fully in one tab. See its [README](examples/tab-jam/README.md).
+- `examples/cli-harness/`: CLI example: a router agent plus plugins, where
+  every plugin is another agent with only the grants its manifest gives it. See its
+  [README](examples/cli-harness/README.md).
 - `examples/mars-colony/`: example scenario: a colony on Mars. Everything it needs
   lives here:
   - `scenario/`: the scenario component.
@@ -143,6 +148,28 @@ roughly two to three minutes.
 ```
 
 Component paths have defaults; override them with `--agent`, `--tool`, `--llm`.
+
+## CLI harness
+
+A router agent plus plugins, where each plugin is another agent in its own
+instance. Build the example, then run one request or open a prompt:
+
+```bash
+examples/cli-harness/build.sh
+./target/release/agentwos-host --harness examples/cli-harness/manifest.json --message "/wordcount one two three"
+./target/release/agentwos-host --harness examples/cli-harness/manifest.json --list
+./target/release/agentwos-host --harness examples/cli-harness/manifest.json
+```
+
+`/<plugin> <input>` calls a plugin directly; anything else goes to the model,
+which calls plugins one after another until it can answer. The router reaches
+every plugin through its ordinary `tool` import.
+
+A plugin uses the `plugin-module` world and can do nothing but compute until
+the manifest grants it something: `llm` for a model, `workspace` for one folder
+and a list of allowed programs. The `coder` plugin has both: it writes code,
+runs it and fixes it until it works. See
+[`examples/cli-harness`](examples/cli-harness/README.md).
 
 ## Writing a scenario
 
