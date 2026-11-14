@@ -201,7 +201,7 @@ function atCursor() {
 }
 function colonistStatus(seen) {
   const m = {};
-  for (const c of st.data.colonists) m[c.agent] = { ...c, zone: "habitat", status: "operating", action: "", latency_ms: null };
+  for (const c of st.data.agents) m[c.agent] = { ...c, zone: "habitat", status: "operating", action: "", latency_ms: null };
   for (const t of seen) Object.assign(m[t.agent], t);
   return m;
 }
@@ -210,7 +210,7 @@ function colonistStatus(seen) {
 function load() {
   return new Promise((resolve) => {
     document.getElementById("sim-data")?.remove();
-    const s = el("script", { id: "sim-data", src: "../sim/runs/latest.js?t=" + Date.now() });
+    const s = el("script", { id: "sim-data", src: "../runs/latest.js?t=" + Date.now() });
     s.onload = () => resolve(window.SIM_DATA || null);
     s.onerror = () => resolve(null);
     document.body.append(s);
@@ -234,7 +234,7 @@ function render() {
   if (!d) {
     pill.textContent = "no data";
     pill.className = "pill";
-    document.getElementById("meta").textContent = "run the host with --colony N --log sim/runs/latest.js";
+    document.getElementById("meta").textContent = "run the host with --manifest examples/mars-colony/manifest.json --colony N";
     return;
   }
   const collapsed = d.days.some((x) => x.collapse);
@@ -428,7 +428,7 @@ function renderTurns({ current }) {
 
   document.getElementById("filters").replaceChildren(
     el("button", { class: "btn" + (st.filter ? "" : " on"), onclick: () => { st.filter = null; render(); } }, "all"),
-    ...st.data.colonists.map((c) => el("button", {
+    ...st.data.agents.map((c) => el("button", {
       class: "btn" + (st.filter === c.agent ? " on" : ""),
       onclick: () => { st.filter = c.agent; render(); },
     }, c.agent)),

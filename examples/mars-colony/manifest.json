@@ -1,8 +1,8 @@
 {
   "name": "mars-colony",
   "scenario": "scenario/target/wasm32-wasip2/release/mars_colony.wasm",
-  "controls": ["../../modules/control-guardia/target/wasm32-wasip2/release/control_guardia.wasm"],
+  "controls": ["controls/guardia/target/wasm32-wasip2/release/control_guardia.wasm"],
   "model": "local/google/gemma-4-e4b",
   "days": 10,
-  "log": "../../sim/runs/latest.js"
+  "log": "runs/latest.js"
 }

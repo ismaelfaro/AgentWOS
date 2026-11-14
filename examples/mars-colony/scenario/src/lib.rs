@@ -175,7 +175,7 @@ impl Guest for Component {
         };
         SIM.with(|s| *s.borrow_mut() = Some(sim));
         json!({
-            "colonists": COLONISTS.iter().map(|(n, r)| json!({ "agent": n, "role": r })).collect::<Vec<_>>(),
+            "agents": COLONISTS.iter().map(|(n, r)| json!({ "agent": n, "role": r })).collect::<Vec<_>>(),
             "zones": ZONES.iter().map(|(z, w)| json!({ "zone": z, "effect": w.json() })).collect::<Vec<_>>(),
             "initial": INITIAL.json(),
         })

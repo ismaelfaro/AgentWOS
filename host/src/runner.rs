@@ -37,9 +37,9 @@ pub fn run(c: &Components, days: u32, model: &str, log_path: Option<&Path>) -> R
     let mut scenario = ScenarioInstance::spawn(c, component)?;
     let description: Value = serde_json::from_str(&scenario.setup(&json!({ "model": model, "days": days }).to_string())?)?;
 
-    let agents: Vec<(String, String)> = description["colonists"]
+    let agents: Vec<(String, String)> = description["agents"]
         .as_array()
-        .ok_or_else(|| anyhow!("scenario setup must return a `colonists` array"))?
+        .ok_or_else(|| anyhow!("scenario setup must return an `agents` array"))?
         .iter()
         .map(|a| (a["agent"].as_str().unwrap_or("").to_string(), a["role"].as_str().unwrap_or("").to_string()))
         .collect();
@@ -99,7 +99,7 @@ pub fn run(c: &Components, days: u32, model: &str, log_path: Option<&Path>) -> R
         log.write(&scenario.snapshot()?, false)?;
         println!("End of day {day}\n");
         if collapsed {
-            println!("ALERT: colony collapse on day {day}.");
+            println!("ALERT: scenario collapsed on day {day}.");
             break;
         }
     }

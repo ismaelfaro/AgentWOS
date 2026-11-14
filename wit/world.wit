@@ -61,7 +61,7 @@ interface scenario {
     use types.{message};
 
     /// config: JSON with at least `model` and `days`. Returns JSON with
-    /// `colonists` (agent names and roles) and any extra fields the dashboard reads.
+    /// `agents` (names and roles) and any extra fields the dashboard reads.
     setup: func(config: string) -> string;
     /// Starts a day. Returns a short description of the day.
     begin-day: func(day: u32, total: u32) -> string;
