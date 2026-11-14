@@ -11,6 +11,8 @@ struct Component;
 const MIN_BPM: u64 = 60;
 const MAX_BPM: u64 = 160;
 const FRANTIC_LIMIT_BPM: u64 = 150;
+const MAX_DRONES: u64 = 8;
+const MAX_DETUNE_CENTS: u64 = 35;
 
 /// Note names as semitones above C, and the notes of C natural minor.
 const NOTES: [(&str, u8); 17] = [
@@ -60,6 +62,19 @@ impl Guest for Component {
                         json!({ "name": name, "arguments": { "bpm": clamped } }).to_string(),
                     );
                 }
+            }
+        }
+
+        if name == "spawn_agent" && state["drone_count"].as_u64().unwrap_or(0) >= MAX_DRONES {
+            return Verdict::Block(format!("the stage is full: {MAX_DRONES} drones is the limit"));
+        }
+
+        if name == "set_drone_detune" {
+            // Past this the section stops sounding like one chord.
+            if args["cents"].as_u64().is_some_and(|c| c > MAX_DETUNE_CENTS) {
+                let mut corrected = call.clone();
+                corrected["arguments"]["cents"] = json!(MAX_DETUNE_CENTS);
+                return Verdict::Modify(corrected.to_string());
             }
         }
 

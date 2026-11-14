@@ -8,14 +8,16 @@ const $ = (id) => document.getElementById(id);
 const worker = new Worker(new URL("worker.js", import.meta.url), { type: "module" });
 
 const COLORS = { Drummer: "--drums", Bassist: "--bass", Lead: "--lead" };
-const ROWS = ["lead", "bass", "hat", "snare", "kick"];
-const ROW_COLOR = { lead: "--lead", bass: "--bass", hat: "--drums", snare: "--drums", kick: "--drums" };
+const ROWS = ["orchestra", "lead", "bass", "hat", "snare", "kick"];
+const ROW_COLOR = { orchestra: "--orchestra", lead: "--lead", bass: "--bass", hat: "--drums", snare: "--drums", kick: "--drums" };
+const ROW_OF = { drone: "orchestra" };
 
 const MAX_LOG_ENTRIES = 40;
 let agents = [];
 let briefs = [];
 let pads = [];
 let choices = [];
+let padDescriptions = [];
 let state = null;
 let cueId = 0;
 
@@ -115,10 +117,18 @@ function drawRoll() {
   const now = audio.now;
   if (!now) return;
   for (const n of now.data.notes) {
-    const r = ROWS.indexOf(n.inst);
+    const row = ROW_OF[n.inst] ?? n.inst;
+    const r = ROWS.indexOf(row);
     if (r < 0) continue;
+    g.fillStyle = css.getPropertyValue(ROW_COLOR[row]);
+    if (n.inst === "drone") {
+      // One thin lane per section, drawn as its pulses across the bar.
+      const lane = (rowH - 6) / n.count, y = r * rowH + 3 + (n.voice % n.count) * lane;
+      g.globalAlpha = 0.8;
+      for (let p = 0; p < n.len; p += n.pulse) g.fillRect(label + p * colW + 1, y, colW * n.pulse - 3, Math.max(1, lane - 1));
+      continue;
+    }
     g.globalAlpha = 0.45 + 0.55 * (n.vel / 127);
-    g.fillStyle = css.getPropertyValue(ROW_COLOR[n.inst]);
     g.fillRect(label + n.step * colW + 1, r * rowH + 3, colW * n.len - 2, rowH - 6);
   }
   g.globalAlpha = 1;
@@ -135,7 +145,12 @@ function settingOf(agent) {
   if (!state) return "";
   if (agent === "Drummer") return `${state.drums.replaceAll("_", " ")} at ${state.tempo} bpm`;
   if (agent === "Bassist") return `${state.bass_movement} on ${state.bass_root}`;
-  return state.lead;
+  if (agent === "Lead") return state.lead;
+  // An agent added later: describe it from its own pad and choice settings.
+  const desc = padDescriptions.find((p) => agents[p.agent]?.agent === agent);
+  if (!desc) return "";
+  const held = desc.choice ? `${state[desc.choice.state]}, ` : "";
+  return `${held}${desc.x.label} ${state[desc.x.state]}, ${desc.y.label} ${state[desc.y.state]}`;
 }
 
 function renderBand() {
@@ -197,10 +212,10 @@ function optionsOf(index) {
         : p.type === "integer" ? `${name}: a number` : `${name}: ${p.description ?? "text"}`));
 }
 
-function buildBand(padDescriptions) {
+function buildBand() {
   pads = [];
   choices = [];
-  $("band").replaceChildren(...agents.map((a, i) => {
+  const cards = agents.map((a, i) => {
     const desc = padDescriptions.find((p) => p.agent === i);
     const pad = desc && createPad(desc, a.agent, (change) => {
       for (const call of padCalls(desc, change)) worker.postMessage({ type: "call", id: ++cueId, agent: i, call });
@@ -208,7 +223,7 @@ function buildBand(padDescriptions) {
     if (pad) pads.push(pad);
     const box = desc?.choice && el("div", { class: "choices" });
     if (box) choices.push({ desc: desc.choice, agentIndex: i, box });
-    return el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--accent"})` }, [
+    return el("div", { class: "agent", id: "agent-" + a.agent, style: `--c:var(${COLORS[a.agent] ?? "--orchestra"})` }, [
       el("h3", {}, "Agent " + a.agent),
       el("div", { class: "muted" }, a.role),
       el("div", { class: "setting", id: "setting-" + a.agent }),
@@ -217,8 +232,19 @@ function buildBand(padDescriptions) {
       pad ? pad.element : el("div", { class: "options" }, optionsOf(i).map((o) => el("div", {}, o))),
       box || null,
     ]);
-  }));
+  });
+  // The last tile adds one more agent to the orchestra.
+  cards.push(el("button", { class: "agent add-agent", type: "button", id: "add-agent", onclick: addAgent }, [
+    el("strong", {}, "+ Add agent"),
+    el("span", { class: "muted" }, "One more orchestra section joins: its own timbre, note, detune and pulse, on the band's root and clock."),
+  ]));
+  $("band").replaceChildren(...cards);
   renderBand();
+}
+
+function addAgent() {
+  $("add-agent").disabled = true;
+  worker.postMessage({ type: "spawn", id: ++cueId, kind: "drone" });
 }
 
 // ---------- audit log ----------
@@ -242,7 +268,8 @@ function logCue(result) {
         const outcome = c.error ? `rejected by the stage: ${c.error}` : c.delivered ? c.result : "not applied";
         lines.push(el("div", { class: "line" }, [
           el("strong", {}, turn.agent), " ", el("code", {}, callText(c.call)),
-          attempt.confidence === null ? " from the pad" : ` confidence ${attempt.confidence.toFixed(2)}, ${turn.latency_ms} ms`,
+          attempt.confidence !== null ? ` confidence ${attempt.confidence.toFixed(2)}, ${turn.latency_ms} ms`
+            : result.source === "spawn" ? " asked by you" : " from the pad",
           ...c.verdicts.map((v) => el("span", { class: "tag " + v.verdict, title: v.detail }, `${v.module}: ${v.verdict}`)),
           c.result?.startsWith("no change") ? el("span", { class: "tag" }, "no change") : null,
           el("div", { class: "muted" }, c.verdicts
@@ -253,7 +280,7 @@ function logCue(result) {
         last = { text: `${callText(c.delivered ?? c.call)}${c.delivered ? "" : " (blocked)"}`, confidence: attempt.confidence };
       }
     }
-    if (last) {
+    if (last && $("agent-" + turn.agent)) {
       $("last-" + turn.agent).textContent = last.text;
       if (last.confidence !== null) $("meter-" + turn.agent).style.width = Math.round(last.confidence * 100) + "%";
       const card = $("agent-" + turn.agent);
@@ -307,7 +334,8 @@ worker.onmessage = ({ data }) => {
     for (const id of ["conductor", "band", "roll-card", "log-card"]) $(id).hidden = false;
     audio.metaBase = `Needle ${(data.modelBytes / 1e6).toFixed(0)} MB - ${agents.length} agents - ${data.setup.key} - no server`;
     showMeta();
-    buildBand(data.setup.pads ?? []);
+    padDescriptions = data.setup.pads ?? [];
+    buildBand();
     setStatus("live", "live");
     worker.postMessage({ type: "render", bar: 0 });
   } else if (data.type === "bar") {
@@ -315,6 +343,18 @@ worker.onmessage = ({ data }) => {
     if (data.bar === 0 && !audio.playing) startPlayback();
   } else if (data.type === "cue-result") {
     state = data.result.state;
+    const added = data.result.added;
+    if (added) {
+      agents.push({ agent: added.agent, role: added.role });
+      briefs.push(added.brief);
+      if (added.pad) padDescriptions.push(added.pad);
+      buildBand();
+      $("agent-" + added.agent).scrollIntoView({ block: "nearest", behavior: "smooth" });
+      audio.metaBase = audio.metaBase.replace(/\d+ agents/, `${agents.length} agents`);
+      showMeta();
+    } else if (data.result.source === "spawn") {
+      $("add-agent").disabled = false;
+    }
     renderBand();
     logCue(data.result);
     // The next bar was rendered before the cue; ask again so the change lands on it.

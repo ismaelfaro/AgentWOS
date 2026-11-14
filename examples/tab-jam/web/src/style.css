@@ -1,7 +1,7 @@
 :root {
   --bg:#f6f4f1; --card:#fff; --ink:#22201c; --muted:#7a766e; --line:#dcd7cf; --soft:#efebe5;
   --accent:#a8502d; --ok:#3f9e5a; --warn:#c98a12; --bad:#c0392b;
-  --drums:#b04a7a; --bass:#2b7bb9; --lead:#c98a12;
+  --drums:#b04a7a; --bass:#2b7bb9; --lead:#c98a12; --orchestra:#3f9e8a;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg:#1b1a18; --card:#26241f; --ink:#ece8e1; --muted:#9a958b; --line:#3a372f; --soft:#2f2c26; --accent:#e08a5f; }
@@ -79,3 +79,8 @@ canvas { width:100%; height:auto; display:block; border-radius:6px; }
 @media (prefers-reduced-motion: reduce) { .cross, .pad-dot { transition:none; } }
 .choices { display:flex; flex-wrap:wrap; gap:5px; align-items:center; margin-top:10px; }
 .choices .chip.on { border-color:var(--c); color:var(--c); font-weight:600; }
+.add-agent { display:flex; flex-direction:column; gap:6px; align-items:flex-start; justify-content:center; text-align:left;
+  border-style:dashed; border-top:1px dashed var(--line); cursor:pointer; min-height:120px; color:inherit; font:inherit; }
+.add-agent strong { font-size:16px; color:var(--orchestra); }
+.add-agent:hover:not(:disabled) { border-color:var(--orchestra); }
+.add-agent:disabled { opacity:.5; cursor:default; }

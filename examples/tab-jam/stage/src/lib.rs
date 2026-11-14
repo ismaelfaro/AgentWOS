@@ -25,6 +25,52 @@ const PENTATONIC: [u8; 5] = [0, 3, 5, 7, 10];
 const BLUES: [u8; 6] = [0, 3, 5, 6, 7, 10];
 const STEPS_PER_BAR: u32 = 16;
 
+/// Drones: extra players that hold one note of the chord. Each one differs in
+/// interval, detune, pulse and register, and all follow the bass root and the bar.
+const DRONE_INTERVALS: [(&str, u8); 6] = [("root", 0), ("third", 3), ("fifth", 7), ("seventh", 10), ("octave", 12), ("silent", 0)];
+/// Pulse lengths as (name, sixteenth notes per pulse).
+const DRONE_PULSES: [(&str, u32); 5] = [("bar", 16), ("half", 8), ("quarter", 4), ("eighth", 2), ("sixteenth", 1)];
+/// Orchestra sections, handed out in turn as agents are added.
+const SECTIONS: [&str; 5] = ["Strings", "Brass", "Flute", "Choir", "Organ"];
+const FIRST_DRONE_AGENT: u32 = 3;
+const MAX_DRONES: usize = 16;
+
+struct Drone {
+    /// Which section it is; fixed when the agent joins. Also the synth timbre.
+    section: &'static str,
+    interval: &'static str,
+    detune: u32,
+    pulse: &'static str,
+}
+
+impl Drone {
+    /// Starting settings that differ from one drone to the next.
+    fn numbered(i: usize) -> Self {
+        Drone {
+            section: SECTIONS[i % SECTIONS.len()],
+            interval: ["root", "fifth", "octave", "third", "seventh"][i % 5],
+            detune: (4 + i as u32 * 7) % 26,
+            pulse: ["quarter", "eighth", "half", "sixteenth", "bar"][i % 5],
+        }
+    }
+}
+
+/// "Strings" for the first of a section, "Strings 2" for the next one.
+fn drone_title(i: usize) -> String {
+    let round = i / SECTIONS.len();
+    let section = SECTIONS[i % SECTIONS.len()];
+    if round == 0 { section.to_string() } else { format!("{section} {}", round + 1) }
+}
+
+/// The word that addresses this agent in a cue: "strings", "strings2".
+fn drone_alias(i: usize) -> String {
+    drone_title(i).to_lowercase().replace(' ', "")
+}
+
+fn drone_names(options: &[(&'static str, impl Copy)]) -> Vec<&'static str> {
+    options.iter().map(|(n, _)| *n).collect()
+}
+
 struct Band {
     tempo: u32,
     drums: &'static str,
@@ -38,6 +84,7 @@ struct Band {
 }
 
 thread_local! {
+    static DRONES: RefCell<Vec<Drone>> = const { RefCell::new(Vec::new()) };
     static BAND: RefCell<Band> = const { RefCell::new(Band {
         tempo: 100,
         drums: "four_on_floor",
@@ -207,7 +254,104 @@ fn outcome(changed: bool, description: String) -> String {
     if changed { description } else { format!("no change, already {description}") }
 }
 
+fn drone_pad(i: usize) -> Value {
+    let n = i + 1;
+    json!({
+        "agent": FIRST_DRONE_AGENT as usize + i,
+        "x": { "label": "detune", "tool": "set_drone_detune", "arg": "cents", "state": format!("drone{n}_detune"), "min": 0, "max": 50, "step": 2 },
+        "y": { "label": "pulse", "tool": "set_drone_pulse", "arg": "pulse", "state": format!("drone{n}_pulse"), "values": drone_names(&DRONE_PULSES) },
+        "choice": { "label": "holds", "tool": "set_drone_interval", "arg": "interval", "state": format!("drone{n}_interval"), "values": drone_names(&DRONE_INTERVALS) },
+    })
+}
+
+fn drone_brief(i: usize) -> Value {
+    let (title, alias) = (drone_title(i), drone_alias(i));
+    json!({
+        "system": format!("You are the {title} section of an orchestra. Only act on requests for {alias}."),
+        "aliases": [alias],
+        "tools": [
+            function("set_drone_interval", "Choose which note of the chord this section holds.",
+                json!({ "interval": { "type": "string", "enum": drone_names(&DRONE_INTERVALS) } }), &["interval"]),
+            function("set_drone_detune", "Set how many cents this section is detuned.",
+                json!({ "cents": { "type": "integer" } }), &["cents"]),
+            function("set_drone_pulse", "Set how long each pulse of this section lasts.",
+                json!({ "pulse": { "type": "string", "enum": drone_names(&DRONE_PULSES) } }), &["pulse"]),
+        ],
+    })
+}
+
+fn apply_to_drone(i: usize, name: &str, args: &Value) -> Result<String, String> {
+    DRONES.with(|d| {
+        let mut d = d.borrow_mut();
+        let n = drone_title(i);
+        let drone = d.get_mut(i).ok_or_else(|| format!("there is no agent {n}"))?;
+        match name {
+            "set_drone_interval" => {
+                let changed = set(&mut drone.interval, pick(&drone_names(&DRONE_INTERVALS), &args["interval"], "interval")?);
+                Ok(outcome(changed, format!("{n} holds the {}", drone.interval)))
+            }
+            "set_drone_detune" => {
+                let cents = args["cents"].as_u64().ok_or("`cents` must be a whole number")?;
+                if cents > 100 {
+                    return Err(format!("`cents` must be between 0 and 100, got {cents}"));
+                }
+                let changed = drone.detune != cents as u32;
+                drone.detune = cents as u32;
+                Ok(outcome(changed, format!("{n} detuned {cents} cents")))
+            }
+            "set_drone_pulse" => {
+                let changed = set(&mut drone.pulse, pick(&drone_names(&DRONE_PULSES), &args["pulse"], "pulse")?);
+                Ok(outcome(changed, format!("{n} pulses every {}", drone.pulse)))
+            }
+            _ => Err(format!("a drone has no tool named '{name}'")),
+        }
+    })
+}
+
+/// One held note per sounding drone for the bar, tuned to the bass root.
+fn drones(root: u8, out: &mut Vec<Value>) {
+    DRONES.with(|d| {
+        let d = d.borrow();
+        let sounding = d.iter().filter(|x| x.interval != "silent").count();
+        for (i, drone) in d.iter().enumerate() {
+            if drone.interval == "silent" {
+                continue;
+            }
+            let offset = DRONE_INTERVALS.iter().find(|(n, _)| *n == drone.interval).map_or(0, |(_, s)| *s);
+            let pulse = DRONE_PULSES.iter().find(|(n, _)| *n == drone.pulse).map_or(4, |(_, s)| *s);
+            // Spread the section over three octaves so drones do not pile on one pitch.
+            let register = [48u8, 60, 36][i % 3];
+            out.push(json!({
+                "inst": "drone", "timbre": drone.section.to_lowercase(), "voice": i, "count": sounding,
+                "step": 0, "len": STEPS_PER_BAR,
+                "midi": register + root + offset, "vel": 80, "detune": drone.detune, "pulse": pulse,
+            }));
+        }
+    })
+}
+
 impl Guest for Component {
+    fn spawn(kind: String) -> Result<String, String> {
+        if kind != "drone" {
+            return Err(format!("this stage can only add an orchestra 'drone', not '{kind}'"));
+        }
+        DRONES.with(|d| {
+            let mut d = d.borrow_mut();
+            if d.len() >= MAX_DRONES {
+                return Err(format!("the stage holds at most {MAX_DRONES} drones"));
+            }
+            let i = d.len();
+            d.push(Drone::numbered(i));
+            Ok(json!({
+                "index": FIRST_DRONE_AGENT as usize + i,
+                "agent": drone_title(i),
+                "role": "Orchestra section: holds one note of the chord, in time with the band",
+                "pad": drone_pad(i),
+            })
+            .to_string())
+        })
+    }
+
     fn setup(_config: String) -> String {
         json!({
             "agents": [
@@ -276,6 +420,7 @@ impl Guest for Component {
                     }), &["root"]),
                 ],
             }),
+            n if n >= FIRST_DRONE_AGENT => drone_brief((n - FIRST_DRONE_AGENT) as usize),
             _ => json!({
                 "system": "You are the lead melody player. Only act on requests about the melody or lead.",
                 "aliases": ["lead", "melody", "solo", "synth", "randomness"],
@@ -302,6 +447,9 @@ impl Guest for Component {
         let call: Value = serde_json::from_str(&call).map_err(|e| format!("call is not JSON: {e}"))?;
         let name = call["name"].as_str().unwrap_or("");
         let args = &call["arguments"];
+        if agent >= FIRST_DRONE_AGENT {
+            return apply_to_drone((agent - FIRST_DRONE_AGENT) as usize, name, args);
+        }
         BAND.with(|b| {
             let mut b = b.borrow_mut();
             match (agent, name) {
@@ -359,6 +507,7 @@ impl Guest for Component {
             drums(b.drums, tick, &mut notes);
             bass(root, b.bass_move, &mut notes);
             lead(b.lead, b.lead_randomness, root, tick, &mut notes);
+            drones(root, &mut notes);
             json!({ "bar": tick, "tempo": b.tempo, "lead_sound": b.lead_sound, "notes": notes }).to_string()
         })
     }
@@ -366,7 +515,7 @@ impl Guest for Component {
     fn state() -> String {
         BAND.with(|b| {
             let b = b.borrow();
-            json!({
+            let mut state = json!({
                 "tempo": b.tempo,
                 "drums": b.drums,
                 "bass_root": b.bass_root,
@@ -375,8 +524,18 @@ impl Guest for Component {
                 "lead_randomness": b.lead_randomness,
                 "lead_sound": b.lead_sound,
                 "key": "C minor",
-            })
-            .to_string()
+            });
+            DRONES.with(|d| {
+                let d = d.borrow();
+                state["drone_count"] = json!(d.len());
+                for (i, drone) in d.iter().enumerate() {
+                    let n = i + 1;
+                    state[format!("drone{n}_interval")] = json!(drone.interval);
+                    state[format!("drone{n}_detune")] = json!(drone.detune);
+                    state[format!("drone{n}_pulse")] = json!(drone.pulse);
+                }
+            });
+            state.to_string()
         })
     }
 }

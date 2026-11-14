@@ -110,6 +110,10 @@ interface stage {
     /// Applies one tool call ({name, arguments} JSON). Returns a short
     /// description, or an error when the call is invalid.
     apply: func(agent: u32, call: string) -> result<string, string>;
+    /// Adds an agent of the given kind while running. Returns JSON with its
+    /// `index`, `agent`, `role` and optional `pad`, or an error when the stage
+    /// cannot take another one.
+    spawn: func(kind: string) -> result<string, string>;
     /// Scenario-defined JSON output for one tick (for example, the notes of a bar).
     render: func(tick: u32) -> string;
     /// Current state as JSON.

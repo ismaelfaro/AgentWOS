@@ -314,6 +314,99 @@ export function createSynth(ctx) {
     lastLeadFreq = freq;
   }
 
+  // ---- orchestra sections ---------------------------------------------------
+  // Each timbre wires its oscillators into `out`. `spread` is the section's
+  // detune in cents: its own voices sit that far apart, which is what makes
+  // one section sound different from the next on the same note.
+  const sectionTimbres = {
+    strings(freq, spread, t, end, out) {
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.frequency.value = 2400;
+      for (const d of [-spread, spread / 2, spread]) osc("sawtooth", freq, t, end, d).connect(tone);
+      tone.connect(out);
+    },
+    brass(freq, spread, t, end, out) {
+      const tone = ctx.createBiquadFilter();
+      tone.type = "lowpass";
+      tone.Q.value = 2;
+      tone.frequency.setValueAtTime(700, t);
+      tone.frequency.exponentialRampToValueAtTime(2600, t + 0.08);
+      tone.frequency.exponentialRampToValueAtTime(1300, t + 0.5);
+      for (const d of [-spread / 2, spread / 2]) osc("sawtooth", freq, t, end, d).connect(tone);
+      const level = ctx.createGain();
+      level.gain.value = 1.3;
+      tone.connect(level).connect(out);
+    },
+    flute(freq, spread, t, end, out) {
+      const vibrato = osc("sine", 5, t, end);
+      const depth = ctx.createGain();
+      depth.gain.value = 6;
+      vibrato.connect(depth);
+      const body = ctx.createGain();
+      body.gain.value = 1.1;
+      for (const [type, level, d] of [["sine", 1, 0], ["triangle", 0.35, spread]]) {
+        const o = osc(type, freq * 2, t, end, d);
+        depth.connect(o.detune);
+        const g = ctx.createGain();
+        g.gain.value = level;
+        o.connect(g).connect(body);
+      }
+      const breath = ctx.createGain();
+      breath.gain.value = 0.12;
+      noiseBurst(t, end, "bandpass", freq * 4, 3).connect(breath).connect(body);
+      body.connect(out);
+    },
+    choir(freq, spread, t, end, out) {
+      const voices = ctx.createGain();
+      for (const d of [-spread, 0, spread]) osc("sawtooth", freq, t, end, d).connect(voices);
+      // Three band-pass peaks shape the saws into an "aah".
+      for (const [formant, q, level] of [[600, 5, 3.8], [1040, 6, 2.6], [2250, 7, 1.4]]) {
+        const f = ctx.createBiquadFilter();
+        f.type = "bandpass";
+        f.frequency.value = formant;
+        f.Q.value = q;
+        const g = ctx.createGain();
+        g.gain.value = level;
+        voices.connect(f).connect(g).connect(out);
+      }
+    },
+    organ(freq, spread, t, end, out) {
+      [[1, 1], [2, 0.6], [3, 0.35], [4, 0.25], [6, 0.12]].forEach(([harmonic, level], i) => {
+        const g = ctx.createGain();
+        g.gain.value = level * 0.9;
+        osc("sine", freq * harmonic, t, end, i % 2 ? spread : -spread).connect(g).connect(out);
+      });
+    },
+  };
+
+  // One held note of a section for a bar. Its level pulses on a division of
+  // the bar, so every section breathes on the band's clock whatever its rate.
+  function section(t, n, step) {
+    const dur = n.len * step;
+    const end = t + dur + 0.3;
+    // Sharing the level across sounding sections keeps a full orchestra from clipping.
+    const level = (n.vel / 127) * 0.2 / Math.sqrt(n.count);
+    const pulse = n.pulse * step;
+
+    const gate = ctx.createGain();
+    gate.gain.setValueAtTime(0.0001, t);
+    gate.gain.linearRampToValueAtTime(level * 0.3, t + 0.02);
+    for (let p = t; p < t + dur - 0.001; p += pulse) {
+      gate.gain.linearRampToValueAtTime(level, p + Math.min(0.25, pulse * 0.3));
+      gate.gain.linearRampToValueAtTime(level * 0.3, p + pulse * 0.96);
+    }
+    gate.gain.linearRampToValueAtTime(0.0001, t + dur + 0.25);
+
+    (sectionTimbres[n.timbre] ?? sectionTimbres.strings)(hz(n.midi), n.detune, t, end, gate);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = ((n.voice * 0.618) % 1) * 1.6 - 0.8;
+    gate.connect(panner).connect(master);
+    const send = ctx.createGain();
+    send.gain.value = 0.35;
+    panner.connect(send).connect(reverb);
+  }
+
   return {
     leadSounds: Object.keys(leadVoices),
     /** One of `leadSounds`, or "sample" once a recording is loaded. */
@@ -335,6 +428,7 @@ export function createSynth(ctx) {
       else if (n.inst === "hat") hat(t, v);
       else if (n.inst === "bass") bass(t, v, n.midi, n.len * step);
       else if (n.inst === "lead") lead(t, v, n.midi, n.len * step);
+      else if (n.inst === "drone") section(t, n, step);
     },
     /** Dotted-eighth echo that follows the tempo. */
     setTempo(bpm) {

@@ -121,11 +121,44 @@ export function createKernel({ stage, actors, controls }) {
     return { text: `${source}: ${agent.agent}`, source, turns: [turn], state: JSON.parse(stage.state()) };
   }
 
+  /**
+   * Adds an agent while running. The request goes through the control chain
+   * like any other call, so a control can refuse it. `makeActor` creates the
+   * new agent's actor instance; it is only called once the controls agree.
+   */
+  async function spawn(kind, makeActor) {
+    const started = performance.now();
+    const request = { name: "spawn_agent", arguments: { kind } };
+    const { delivered, verdicts } = inspect("kernel", request);
+    const record = { call: request, delivered, verdicts, result: null, error: null };
+    let added = null;
+    if (delivered) {
+      try {
+        const actor = await makeActor();
+        const description = JSON.parse(stage.spawn(delivered.arguments.kind));
+        agents.push({ agent: description.agent, role: description.role });
+        actors.push(actor);
+        added = { ...description, brief: JSON.parse(stage.brief(description.index)) };
+        record.result = `${description.agent} joined`;
+      } catch (e) {
+        record.error = String(e.payload ?? e.message ?? e);
+      }
+    }
+    const turn = {
+      agent: "Kernel",
+      attempts: [{ clause: "spawn", confidence: null, calls: [record], ignored: null }],
+      error: null,
+      latency_ms: Math.round(performance.now() - started),
+    };
+    return { text: `add agent: ${kind}`, source: "spawn", turns: [turn], state: JSON.parse(stage.state()), added };
+  }
+
   return {
     setup,
     agents,
     cue,
     call,
+    spawn,
     state: () => JSON.parse(stage.state()),
     render: (tick) => JSON.parse(stage.render(tick)),
     briefs: () => agents.map((_, i) => JSON.parse(stage.brief(i))),

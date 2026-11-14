@@ -15,6 +15,7 @@ const MODEL_URL = "https://huggingface.co/Cactus-Compute/needle3/resolve/main/ne
 const CACHE = "tab-jam-v1";
 const base = self.location.href;
 let kernel = null;
+let makeActor = null;
 
 async function init() {
   const progress = (label) => (loaded, total) => postMessage({ type: "progress", label, loaded, total });
@@ -29,12 +30,11 @@ async function init() {
   const stage = (await instantiateStage(wasm("stage"), wasiImports(shim))).stage;
   const control = (await instantiateControl(wasm("sound-engineer"), wasiImports(shim))).control;
   const agentCount = JSON.parse(stage.setup("{}")).agents.length;
+  // One actor instance per agent: separate memory, same tool-llm service.
+  makeActor = async () =>
+    (await instantiateActor(wasm("actor"), wasiImports(shim, { "agentwos:core/tool-llm": needle }))).actor;
   const actors = [];
-  for (let i = 0; i < agentCount; i++) {
-    // One actor instance per agent: separate memory, same tool-llm service.
-    const root = await instantiateActor(wasm("actor"), wasiImports(shim, { "agentwos:core/tool-llm": needle }));
-    actors.push(root.actor);
-  }
+  for (let i = 0; i < agentCount; i++) actors.push(await makeActor());
 
   kernel = createKernel({ stage, actors, controls: [{ name: "sound-engineer", control }] });
   postMessage({
@@ -59,6 +59,10 @@ self.onmessage = ({ data }) => {
       postMessage({ type: "cue-result", id: data.id, result: kernel.cue(data.text) });
     } else if (data.type === "call") {
       postMessage({ type: "cue-result", id: data.id, result: kernel.call(data.agent, data.call, "pad") });
+    } else if (data.type === "spawn") {
+      kernel.spawn(data.kind, makeActor)
+        .then((result) => postMessage({ type: "cue-result", id: data.id, result }))
+        .catch(fail);
     } else if (data.type === "render") {
       postMessage({ type: "bar", bar: data.bar, data: kernel.render(data.bar) });
     }

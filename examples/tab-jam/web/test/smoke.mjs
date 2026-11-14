@@ -32,11 +32,10 @@ const shim = { cli, clocks, io, random };
 const load = (dir) => async (path) => WebAssembly.compile(await readFile(new URL(`../gen/${dir}/${path}`, here)));
 const stage = (await instantiateStage(load("stage"), wasiImports(shim))).stage;
 const control = (await instantiateControl(load("sound-engineer"), wasiImports(shim))).control;
+const makeActor = async () =>
+  (await instantiateActor(load("actor"), wasiImports(shim, { "agentwos:core/tool-llm@0.1.0": needle }))).actor;
 const actors = [];
-for (let i = 0; i < 3; i++) {
-  const root = await instantiateActor(load("actor"), wasiImports(shim, { "agentwos:core/tool-llm@0.1.0": needle }));
-  actors.push(root.actor);
-}
+for (let i = 0; i < 3; i++) actors.push(await makeActor());
 const kernel = createKernel({ stage, actors, controls: [{ name: "sound-engineer", control }] });
 
 let failed = 0;
@@ -131,6 +130,40 @@ for (const sound of kernel.setup.pads[2].choice.values) {
   r = run(`Lead sound ${sound}`);
   check(`cue picks lead sound ${sound}`, r.state.lead_sound === sound, `sound=${r.state.lead_sound}`);
 }
+
+// Orchestra: agents added one by one while running.
+const dronesIn = (bar) => kernel.render(bar).notes.filter((n) => n.inst === "drone");
+check("no orchestra sections at the start", dronesIn(0).length === 0 && kernel.agents.length === 3);
+let s1 = await kernel.spawn("drone", makeActor);
+check("first added agent is Strings", s1.added?.agent === "Strings" && kernel.agents.length === 4 && s1.state.drone_count === 1);
+check("added agent brings a pad and a brief", s1.added.pad.agent === 3 && s1.added.brief.aliases[0] === "strings");
+const added = [s1];
+for (let i = 0; i < 4; i++) added.push(await kernel.spawn("drone", makeActor));
+check("sections are handed out in turn", added.map((a) => a.added.agent).join(",") === "Strings,Brass,Flute,Choir,Organ");
+let notes = dronesIn(0);
+check("each section sounds", notes.length === 5 && notes.every((n) => n.count === 5 && n.len === 16));
+const distinct = (key) => new Set(notes.map((n) => n[key])).size;
+check("sections differ in timbre, pitch, detune and pulse",
+  distinct("timbre") === 5 && distinct("midi") >= 4 && distinct("detune") >= 4 && distinct("pulse") >= 4,
+  `timbre ${distinct("timbre")} midi ${distinct("midi")} detune ${distinct("detune")} pulse ${distinct("pulse")}`);
+const before = notes.map((n) => n.midi);
+kernel.call(1, { name: "set_bass_line", arguments: { root: "F" } }, "pad");
+check("every section follows the bass root", dronesIn(0).every((n, i) => n.midi === before[i] - 2 || n.midi === before[i] + 5), dronesIn(0).map((n) => n.midi).join(","));
+check("pulses are divisions of the bar", dronesIn(0).every((n) => 16 % n.pulse === 0));
+p = kernel.call(3, { name: "set_drone_detune", arguments: { cents: 50 } }, "pad");
+check("engineer clamps a section's detune", p.state.drone1_detune === 35, `detune=${p.state.drone1_detune}`);
+p = kernel.call(4, { name: "set_drone_interval", arguments: { interval: "silent" } }, "pad");
+check("a silent section drops out and the rest share the level", dronesIn(0).length === 4 && dronesIn(0).every((n) => n.count === 4));
+for (let i = 0; i < 3; i++) await kernel.spawn("drone", makeActor);
+check("second round is numbered", kernel.agents[8].agent === "Strings 2" && kernel.agents.length === 11);
+const full = await kernel.spawn("drone", makeActor);
+check("engineer blocks a ninth section", full.added === null && full.turns[0].attempts[0].calls[0].verdicts[0].verdict === "block" && kernel.agents.length === 11);
+r = run("strings hold the seventh");
+check("text cue reaches an added agent", r.state.drone1_interval === "seventh", `interval=${r.state.drone1_interval}`);
+r = run("brass pulse quarter");
+check("text cue sets a section's pulse", r.state.drone2_pulse === "quarter", `pulse=${r.state.drone2_pulse}`);
+r = run("Make the drums half time");
+check("band cues still work with the orchestra", r.state.drums === "half_time");
 
 console.log(`\n${failed ? failed + " FAILED" : "all checks passed"}`);
 process.exit(failed ? 1 : 0);
