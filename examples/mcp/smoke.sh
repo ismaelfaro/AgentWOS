@@ -5,7 +5,7 @@ set -u
 cd "$(dirname "$0")"
 HOST=../../target/release/agentwos-host
 [ -x "$HOST" ] || HOST=../../host/target/release/agentwos-host
-W=$(mktemp -d); trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$W"; rm -f mcp.lock' EXIT
+W=$(mktemp -d); trap 'kill $(jobs -p) 2>/dev/null; wait 2>/dev/null; rm -rf "$W"; rm -f mcp.lock' EXIT
 M=$W/mode.json; echo '{}' > "$M"; rm -f mcp.lock
 python3 server.py --port 8791 --mode "$M" 2>/dev/null &
 python3 server.py --port 8792 --mode "$W/legacy.json" --era legacy 2>/dev/null &

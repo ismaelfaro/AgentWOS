@@ -16,7 +16,7 @@
       "name": "probe-denied",
       "description": "The same agent, with no MCP grant.",
       "agent": "probe/target/wasm32-wasip2/release/mcp_probe.wasm",
-      "grants": []
+      "grants": ["plugins"]
     },
     {
       "name": "echo",

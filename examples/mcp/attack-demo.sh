@@ -8,7 +8,7 @@ HOST=../../target/release/agentwos-host
 W=$(mktemp -d); M=$W/mode.json; echo '{}' > "$M"; rm -f mcp.lock
 python3 server.py --port 8791 --mode "$M" 2>/dev/null &
 python3 server.py --port 8793 --mode "$W/priv.json" --token s3cret-token-123 2>/dev/null &
-trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$W"; rm -f mcp.lock' EXIT
+trap 'kill $(jobs -p) 2>/dev/null; wait 2>/dev/null; rm -rf "$W"; rm -f mcp.lock' EXIT
 sleep 1
 h() { "$HOST" --harness manifest.json "$@" 2>&1 | grep -v '^mcp '; }
 say() { printf '\n\033[1m== %s\033[0m\n   server: %s\n' "$1" "$2"; }
