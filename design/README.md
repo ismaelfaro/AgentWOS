@@ -133,6 +133,7 @@ exists, and stories that show it working.
 | Planes, shared memory, shared skills (under discussion) | [Hive](hive.md) | [Build](build/hive.md) | [Stories](stories/hive.md) |
 | Choosing the model for a coding agent: benchmark and knowledge table (plan) | [Benchmark](benchmark.md) | [Build](build/benchmark.md) | [Stories](stories/benchmark.md) |
 | Sending each piece of work to the right expert, with decision models (plan) | [Router](router.md) | [Build](build/router.md) | [Stories](stories/router.md) |
+| Calling MCP servers and being called by MCP clients, always through a guard | [MCP](mcp.md) | [Build](build/mcp.md) | [Stories](stories/mcp.md) |
 
 Supporting documents:
 
