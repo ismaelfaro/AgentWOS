@@ -22,6 +22,7 @@ use crate::runtime::{
     WasiState,
 };
 use crate::activity::Activity;
+use crate::prompt::Requests;
 use crate::workspace::Workspace;
 
 const GRANTS: [&str; 3] = ["llm", "workspace", "plugins"];
@@ -427,6 +428,20 @@ pub fn run(
         let reply = router.ask(request(default.as_deref(), &model, text));
         activity.summary(started);
         println!("{}", reply.map_err(|e| anyhow!(e))?);
+        return Ok(());
+    }
+
+    // On a terminal: a line editor that keeps taking requests while one runs.
+    if let Some(requests) = Requests::start(&activity) {
+        while let Some(line) = requests.next().filter(|line| line != "/exit" && line != "/quit") {
+            let started = Instant::now();
+            let reply = router.ask(request(default.as_deref(), &model, &line));
+            activity.summary(started);
+            match reply {
+                Ok(reply) => activity.say(&format!("\n{reply}\n")),
+                Err(e) => activity.say(&format!("\nerror: {e}\n")),
+            }
+        }
         return Ok(());
     }
 

@@ -1,6 +1,7 @@
 mod activity;
 mod control;
 mod harness;
+mod prompt;
 mod runner;
 mod runtime;
 mod workspace;

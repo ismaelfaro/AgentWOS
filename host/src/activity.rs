@@ -59,11 +59,22 @@ struct Row {
     files: usize,
 }
 
-/// The part of the screen that is redrawn: the board, then the spinner line.
+/// The line the user types on, kept at the bottom while agents work.
+#[derive(Default)]
+pub struct Prompt {
+    pub text: Vec<char>,
+    pub cursor: usize,
+    /// Requests entered while another was running, waiting their turn.
+    pub queued: Vec<String>,
+}
+
+/// The part of the screen that is redrawn: the board, the spinner line, the
+/// requests in the queue and the line being typed.
 #[derive(Default)]
 struct Screen {
     rows: Vec<Row>,
     waiting: Vec<Waiting>,
+    prompt: Option<Prompt>,
     /// Lines drawn last time, to be erased before anything else is written.
     drawn: usize,
     frame: usize,
@@ -231,8 +242,23 @@ impl Shared {
                 self.paint(MAGENTA, &more)
             ));
         }
+        let mut column = None;
+        if let Some(prompt) = &screen.prompt {
+            for request in &prompt.queued {
+                lines.push(self.paint(DIM, &format!("  queued  {}", one_line(request, width.saturating_sub(12)))));
+            }
+            // A long line shows the part around the cursor, never wrapping.
+            let room = width.saturating_sub(4).max(8);
+            let from = prompt.cursor.saturating_sub(room - 1);
+            let shown: String = prompt.text.iter().skip(from).take(room).collect();
+            lines.push(format!("{} {shown}", self.paint(BOLD, ">")));
+            column = Some(2 + prompt.cursor - from);
+        }
         self.erase(screen);
         eprint!("{}", lines.join("\n"));
+        if let Some(column) = column {
+            eprint!("\r\x1b[{column}C");
+        }
         let _ = std::io::stderr().flush();
         screen.drawn = lines.len();
     }
@@ -279,6 +305,36 @@ impl Activity {
             });
         }
         Self { shared: Some(shared), depth: 0, branch: String::new() }
+    }
+
+    /// Whether there is a screen to draw a prompt on.
+    pub fn is_live(&self) -> bool {
+        self.shared.as_ref().is_some_and(|s| s.terminal)
+    }
+
+    /// Changes the line being typed, or the queue, and redraws them. The
+    /// first call puts the prompt on screen.
+    pub fn prompt(&self, change: impl FnOnce(&mut Prompt)) {
+        let Some(s) = &self.shared else { return };
+        let mut screen = s.screen.lock().unwrap();
+        change(screen.prompt.get_or_insert_with(Prompt::default));
+        s.draw(&mut screen);
+    }
+
+    /// Takes the prompt off the screen.
+    pub fn close_prompt(&self) {
+        let Some(s) = &self.shared else { return };
+        let mut screen = s.screen.lock().unwrap();
+        s.erase(&mut screen);
+        screen.prompt = None;
+    }
+
+    /// Writes text that stays, above the prompt and whatever is redrawn.
+    pub fn say(&self, text: &str) {
+        match &self.shared {
+            Some(s) => s.print(&text.lines().map(str::to_string).collect::<Vec<_>>()),
+            None => println!("{text}"),
+        }
     }
 
     /// One level further in: where the things an agent does are shown.
