@@ -1,0 +1,13 @@
+{
+  "name": "tab-swarm",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@bytecodealliance/jco": "1.42.0",
+    "@bytecodealliance/preview2-shim": "^0.17.0",
+    "esbuild": "^0.25.0"
+  }
+}

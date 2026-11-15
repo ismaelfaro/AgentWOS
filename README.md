@@ -51,6 +51,7 @@ leave policy in prompts. AgentWOS takes the operating-system view instead:
 | [Mars colony](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mars-colony) | Native host | Turn-based scenario |
 | [Tab Jam](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-jam) | Browser kernel | Interactive, tool calls |
 | [CLI harness](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/cli-harness) | Native host | A coding harness of small expert agents |
+| [Tab Swarm](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-swarm) | Node and browsers together | Distributed: one local agent and one per browser tab, exchanging signed intents |
 
 ## Quick start
 

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tab Swarm</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Tab Swarm</h1>
+  <span class="pill" id="status">starting</span>
+  <span class="muted">This tab is a realm of AgentWOS. It runs one WASM agent and answers the lead on your machine.</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2>This realm</h2>
+    <dl>
+      <dt>Name</dt><dd id="name">-</dd>
+      <dt>Key</dt><dd id="key">-</dd>
+      <dt>Agent</dt><dd>worker (WebAssembly), serves <code>primes.count</code></dd>
+      <dt>Lets in</dt><dd><code>primes.count</code> from <code>lead</code>, and nothing else</dd>
+      <dt>Lets out</dt><dd>nothing</dd>
+    </dl>
+    <div class="row">
+      <label class="switch"><input type="checkbox" id="faulty"> Return wrong answers (simulate a faulty node)</label>
+      <button class="btn" id="reach">Try to reach out</button>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h2>Work done here</h2>
+      <div class="stats">
+        <div><span>pieces</span><strong id="pieces">0</strong></div>
+        <div><span>numbers checked</span><strong id="numbers">0</strong></div>
+        <div><span>primes found</span><strong id="primes">0</strong></div>
+      </div>
+      <p class="muted" id="last">Waiting for the lead. Type <code>primes 5000000</code> in its terminal.</p>
+    </div>
+    <div class="card">
+      <h2>Realms in the room</h2>
+      <ul id="peers" class="list"><li class="muted">none yet</li></ul>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Ledger of this realm <small>every decision this kernel made, allowed or denied</small></h2>
+    <ul id="ledger" class="list"><li class="muted">nothing yet</li></ul>
+  </section>
+</main>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

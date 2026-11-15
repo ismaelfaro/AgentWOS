@@ -8,6 +8,37 @@ AgentWOS is meant to run as many kernels cooperating over the internet. This
 document adds two components to the five in [Protocol](protocol.md), and says
 how the five are proven across a kernel boundary.
 
+## How the system becomes distributed
+
+The path has three stages. Each one works on its own, and none changes what an
+agent is.
+
+| Stage | What it adds | Network needed | State |
+|---|---|---|---|
+| **1. One kernel** | Agents, policy, ledger, pools and swarms inside one process | None | Pools are designed; policy and ledger exist in a first form |
+| **2. Kernels that know each other** | Realm keys, signed intents, a relay or gateway, adverts, policy between realms | A relay both sides can reach | A first slice works: see below |
+| **3. Open federation** | Direct peering by key, grants that cross realms, experts fetched by digest | Realms reachable from each other | Designed, not built |
+
+Three rules hold at every stage:
+
+- **A realm is a kernel plus a key.** A laptop, a server and a browser tab are
+  all realms. What differs is what they can reach.
+- **Whoever cannot listen connects out.** A browser tab or a laptop behind a
+  router joins a relay. The relay forwards; it does not decide. Each realm
+  checks signatures and applies its own policy.
+- **Default deny on both sides.** An intent needs an egress rule where it
+  leaves and an ingress rule where it arrives. Being in the same room grants
+  nothing.
+
+**What is built today.** The [Tab Swarm example](../examples/tab-swarm/README.md)
+is stage 2 in small: one realm on your machine and one per browser tab, each
+with an Ed25519 key, exchanging signed intents through a relay, with ingress and
+egress rules, replay and expiry checks, a ledger per realm, and pools with
+`all`, `first` and `quorum`. The code is
+[`web/kernel/realm.js`](../web/kernel/realm.js). It has no grants or mandates
+across realms yet, the relay is trusted for introductions, and the local realm
+runs on the JavaScript kernel, not the Rust host.
+
 ## Realm
 
 A realm is one kernel and everything it loads. It has a key pair, and its public

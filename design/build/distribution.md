@@ -6,6 +6,17 @@ How to implement pools, swarms, realms, the gateway, local tools and component
 mobility. It assumes `Kernel::dispatch` from [Building the protocol](protocol.md).
 Code blocks are sketches; they have not been compiled.
 
+## What already exists
+
+[`web/kernel/realm.js`](../../web/kernel/realm.js) implements a first slice in
+JavaScript, used by the [Tab Swarm example](../../examples/tab-swarm/README.md):
+realm identity (Ed25519), signed intents with expiry and replay checks, ingress
+and egress rules, a ledger, and `askPool` with `all`, `any`, `first` and
+`quorum` and a `maxFanout` limit. The example's relay plays the part of the
+gateway for realms that cannot listen. Use it as the reference when porting the
+same steps to the Rust host. Not there yet: budgets, cancellation, grants,
+mandates, direct peering.
+
 ## Pools and swarms need no network
 
 Do these first. They are a change to one step of `dispatch`: resolving `to`.
