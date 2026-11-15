@@ -32,7 +32,8 @@ struct Args {
     #[arg(long)]
     list: bool,
 
-    /// With --harness: show what the agents do even when not on a terminal.
+    /// With --harness: show every line of what the agents do, also when not
+    /// on a terminal, instead of a board for agents that work in parallel.
     #[arg(long)]
     trace: bool,
 

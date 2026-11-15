@@ -291,8 +291,13 @@ impl Plugins {
         if calls.len() < 2 {
             return calls.into_iter().map(|call| self.invoke(call)).collect();
         }
-        self.activity.together(calls.len());
-        std::thread::scope(|scope| {
+        let input = |call: &ToolCall| -> String {
+            let args: Value = serde_json::from_str(&call.args_json).unwrap_or(Value::Null);
+            args["input"].as_str().unwrap_or("").to_string()
+        };
+        let asks: Vec<(String, String)> = calls.iter().map(|call| (call.name.clone(), input(call))).collect();
+        self.activity.together(&asks);
+        let answers = std::thread::scope(|scope| {
             let running: Vec<_> = calls
                 .into_iter()
                 .enumerate()
@@ -303,7 +308,9 @@ impl Plugins {
                 .collect();
             let crashed = || Err(CallError::ExecutionFailed("the agent's thread crashed".into()));
             running.into_iter().map(|thread| thread.join().unwrap_or_else(|_| crashed())).collect()
-        })
+        });
+        self.activity.settled();
+        answers
     }
 }
 

@@ -34,29 +34,28 @@ Then say what you want:
 ```
 > add a function is_prime(n) in primes.py with unit tests, run them, and commit
 ● coder add a function is_prime(n) in primes.py with unit tests, run them, and…
-  ● project
-    ✓ $ uname -srm 0.0s
-  ⠹ thinking gemma-4-e4b 3.2s            <- live, while the model works
-  · write primes.py 14 lines
-  · write test_primes.py 31 lines
-  ● python test test_primes.py
-    ✓ $ python3 -m unittest test_primes.py 0.1s
-    │ Ran 5 tests in 0.000s
-    │ OK
-  ● git commit -m "Added is_prime function and unit tests"
-    ✓ $ git commit -m Added is_prime function and unit tests 0.0s
-    │ [main d62b8d1] Added is_prime function and unit tests
-  4 agent calls · 5 model calls · 3 programs · 21.1s
+│  ● project
+│  │  ✓ $ uname -srm 0.0s
+│  ⠹ thinking gemma-4-e4b 3.2s            <- live, while the model works
+│  · write primes.py 14 lines
+│  · write test_primes.py 31 lines
+│  ● python test test_primes.py
+│  │  ✓ $ python3 -m unittest test_primes.py 0.1s
+│  │    ┊ Ran 5 tests in 0.000s
+│  │    ┊ OK
+│  ● git commit -m "Added is_prime function and unit tests"
+│  │  ✓ $ git commit -m Added is_prime function and unit tests 0.0s
+│  │    ┊ [main d62b8d1] Added is_prime function and unit tests
+└─ 4 agent calls · 5 model calls · 3 programs · 21.1s
 
 Added is_prime to primes.py, created unit tests, ran them, and committed both files.
 ```
 
-While it works you see what is happening: `●` an agent being asked, indented
-under whoever asked it; a spinner and a clock on what is being waited for (a
+While it works you see what is happening: `●` an agent being asked, with what
+it does drawn under it; a spinner and a clock on what is being waited for (a
 model thinking, a program running); `·` a file read or written; `✓`, `!` or `✗`
-on how each thing ended, with the last lines a program printed. The host draws
-all of this from the calls it mediates; the agents do nothing for it. It is
-shown on a terminal; `--trace` shows it when the output is piped too.
+on how each thing ended, and `┊` the last lines a program printed. The host
+draws all of this from the calls it mediates; the agents do nothing for it.
 
 - **Plain text** goes to `coder`, which remembers the earlier tasks of the
   session. `/coder new` makes it forget them.
@@ -69,6 +68,7 @@ host="./target/release/agentwos-host --harness examples/cli-harness/manifest.jso
 $host --list                                 # plugins, grants, programs; x = does not fit this project
 $host --message "/git log"                   # one request, then exit
 $host --model local/google/gemma-4-e4b       # a local model (LM Studio) for this run
+$host --trace                                # every line of every agent, no board; also when piped
 ```
 
 Without `--project`, the harness works in `runs/workspace`, an empty folder to
@@ -118,25 +118,26 @@ When a task has independent pieces, `coder` asks several agents at once: more
 `coder` agents, one per piece, or several experts.
 
 ```
-> write 3 small python examples in parallel (sorting, fibonacci, word count) and make sure each runs
+> write 3 small python examples in parallel (sorting, fibonacci, word count) and run each
 ● coder write 3 small python examples in parallel (sorting, fibonacci, word co…
-  ⇉ 3 agents at the same time
-  [1] ● coder Create examples/sorting.py with a simple sorting example ...
-  [2] ● coder Create examples/fibonacci.py with a Fibonacci sequence example ...
-  [3] ● coder Create examples/word_count.py with a word count example ...
-    [2] · write examples/fibonacci.py 80 lines
-    [2] ● python run examples/fibonacci.py
-      [2] ✓ $ python3 examples/fibonacci.py 1.2s
-    [3] · write examples/word_count.py 73 lines
-    ...
-⠹ [1] thinking nemotron 4.2s  +2 more at the same time
+│  ✓ thinking nemotron 4.7s
+│  ⇉ 3 agents in parallel
+│  ├ 1 ✓ coder Create a Python file 'sorting.py'…    7 model calls · 1 file · 2 programs 9.6s
+│  ├ 2 ⠧ coder Create a Python file 'fibonacci.py'…  thinking nemotron 3.1s
+│  ├ 3 ⠧ coder Create a Python file 'word_count.py'… $ python3 word_count.py 0.4s
 ```
 
-The number in brackets is the branch a line belongs to. Each call goes to its
-own instance of the agent: the host keeps a pool per plugin and starts another
-instance when all are busy, so five `coder` agents are five separate sandboxes
-with nothing shared but the project folder. A chain of agents asking agents
-stops at four deep.
+Agents working at the same time are a board: one row each, redrawn in place,
+saying what that agent is doing right now. A row that has finished says what it
+took, and the board stays on screen as those lines once all have answered. The
+board has no room for the detail of each agent; run with `--trace` to get every
+line of every agent instead, each marked with its number. That is also what you
+get when the output is piped.
+
+Each call goes to its own instance of the agent: the host keeps a pool per
+plugin and starts another instance when all are busy, so five `coder` agents
+are five separate sandboxes with nothing shared but the project folder. A chain
+of agents asking agents stops at four deep.
 
 How much faster this is depends on the model server. A remote API answers the
 requests side by side; a local server answers as many at once as it is set to,
