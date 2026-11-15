@@ -11,3 +11,5 @@ node_modules
 /examples/*/web/samples
 /examples/*/web/deploy
 /examples/*/gen
+/examples/mcp/mcp.lock
+/examples/mcp/probe/target

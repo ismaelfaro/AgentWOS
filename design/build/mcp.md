@@ -3,7 +3,7 @@
 [Index](../README.md) · [Concept](../mcp.md) · [Stories](../stories/mcp.md)
 
 How to add MCP in both directions to the code that exists, with a guard on every
-message. Code blocks are sketches; they have not been compiled.
+message. The sketches below are the plan; the first build is in `host/src/mcp.rs` and the three modules, and differs in small ways (see the status section of the concept doc). Steps 1 to 7 of the order are done; 8 and 9 are not.
 
 ## What exists to build on
 

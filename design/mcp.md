@@ -263,3 +263,28 @@ and a plugin is given a server the way it is given anything else:
 - WorkOS, [MCP security risks and best practices](https://workos.com/blog/mcp-security-risks-best-practices).
 - Zuplo, [remote MCP server rug pulls](https://zuplo.com/blog/remote-mcp-server-rug-pull/).
 - On pinning the full definition instead of selected fields: [MCP tool-shadowing defenses](https://codeongrass.com/blog/mcp-tool-shadowing-defenses-detect-poisoned-descriptions/).
+
+
+## Status of the first build
+
+The MCP piece is a **sidecar** per connection, run and watched by the OS: the
+agent never touches the network or the protocol, it only calls `<server>.<tool>`.
+The sidecar is the WASM bridge, the built-in guard (compiled into the kernel,
+fails closed), a network narrowed to one origin, the server's secret (held by the
+kernel) and limits. The OS supervises it: a crashed bridge is restarted up to 3
+times in 5 minutes, then quarantined; definitions are re-verified every 60 s;
+`--mcp-status` shows calls, blocked, flagged, errors, restarts and bytes.
+
+Built and checked by `examples/mcp/smoke.sh` (22 checks): approval and pins,
+rug-pull quarantine, poisoned definitions (strict refuses, lax flags), injected
+results (delivered as data and flagged), size limit, secrets in arguments,
+`input_required` blocked, redirects refused, bearer token kept out of output,
+current and legacy protocol, serving over stdio.
+
+Not built yet: servers started from a `command` over stdio, HTTP serving,
+`input_required` handling. Exposed agents may only hold `llm` and `workspace`.
+Secrets are redacted in results that leave the system, not in results that arrive.
+Strict mode is off unless the manifest sets `"strict": true`.
+
+Commands: `--mcp-approve <server>`, `--mcp-status`, `--mcp-call <server.tool> --message <json>`, `--mcp-serve`.
+Build with `examples/mcp/build.sh`.

@@ -3,6 +3,7 @@
 //! and so does any plugin granted `plugins`, which is how agents call each
 //! other. What a plugin may touch is decided here, from the manifest.
 
+use std::collections::VecDeque;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -16,12 +17,15 @@ use wasmtime_wasi::{WasiCtxView, WasiView};
 
 use crate::runtime::plugin_world::agentwos::core::workspace::{ExecResult, FileEntry, Host as WorkspaceHost};
 use crate::runtime::plugin_world::agentwos::core::team::Host as TeamHost;
+use crate::runtime::mcp_server_world::agentwos::core::exposed::Host as ExposedHost;
+use crate::runtime::mcp_server_world::McpServerModule;
 use crate::runtime::plugin_world::PluginModule;
 use crate::runtime::{
     load, message, AgentInstance, CallError, LlmClient, LlmHost, Message, ToolCall, ToolHost, Tools, TypesHost,
     WasiState,
 };
 use crate::activity::Activity;
+use crate::mcp::{self, Mcp, McpConfig};
 use crate::prompt::Requests;
 use crate::workspace::Workspace;
 
@@ -47,10 +51,6 @@ struct PluginSpec {
 }
 
 impl PluginSpec {
-    fn granted(&self, grant: &str) -> bool {
-        self.grants.iter().any(|g| g == grant)
-    }
-
     fn fits(&self, project: &Workspace) -> bool {
         self.when.is_empty() || self.when.iter().any(|marker| project.has(marker))
     }
@@ -67,6 +67,8 @@ struct Manifest {
     workspace: PathBuf,
     timeout: Duration,
     plugins: Vec<PluginSpec>,
+    /// The `mcp` section: outside servers agents may use, and what to offer outside clients.
+    mcp: Option<McpConfig>,
 }
 
 impl Manifest {
@@ -86,8 +88,8 @@ impl Manifest {
         for p in raw["plugins"].as_array().into_iter().flatten() {
             let name = text(p, "name")?;
             let grants = list(&p["grants"]);
-            if let Some(unknown) = grants.iter().find(|g| !GRANTS.contains(&g.as_str())) {
-                bail!("plugin '{name}': unknown grant '{unknown}' (known: {})", GRANTS.join(", "));
+            if let Some(unknown) = grants.iter().find(|g| !GRANTS.contains(&g.as_str()) && !g.starts_with("mcp:")) {
+                bail!("plugin '{name}': unknown grant '{unknown}' (known: {}, mcp:<server>)", GRANTS.join(", "));
             }
             plugins.push(PluginSpec {
                 description: p["description"].as_str().unwrap_or("").to_string(),
@@ -102,6 +104,15 @@ impl Manifest {
         if plugins.is_empty() {
             bail!("{}: no plugins", path.display());
         }
+        let plugin_names: Vec<String> = plugins.iter().map(|p| p.name.clone()).collect();
+        let mcp = raw.get("mcp").filter(|v| !v.is_null()).map(|v| McpConfig::parse(v, base, &plugin_names)).transpose()?;
+        for plugin in &plugins {
+            for grant in plugin.grants.iter().filter_map(|g| g.strip_prefix("mcp:")) {
+                if !mcp.as_ref().is_some_and(|m| m.server(grant).is_some()) {
+                    bail!("plugin '{}': grant `mcp:{grant}` names a server the manifest's `mcp` section does not declare", plugin.name);
+                }
+            }
+        }
         let default = raw["default"].as_str().map(str::to_string);
         if let Some(name) = default.as_deref().filter(|d| plugins.iter().all(|p| p.name != *d)) {
             bail!("{}: `default` names '{name}', which is not a plugin", path.display());
@@ -115,6 +126,7 @@ impl Manifest {
             workspace: base.join(raw["workspace"].as_str().unwrap_or("workspace")),
             timeout: Duration::from_secs(raw["timeout_seconds"].as_u64().unwrap_or(DEFAULT_TIMEOUT_SECONDS)),
             plugins,
+            mcp,
         })
     }
 }
@@ -230,6 +242,34 @@ struct Registry {
     model: String,
     project: Workspace,
     plugins: Vec<Plugin>,
+    /// The sidecars to the outside: MCP servers, each behind its guards.
+    mcp: Mcp,
+}
+
+/// What the holder of a `Plugins` may reach: other plugins, and which MCP servers.
+#[derive(Clone)]
+struct Scope {
+    name: String,
+    plugins: bool,
+    mcp: Vec<String>,
+}
+
+impl Scope {
+    fn router() -> Self {
+        Self { name: "router".into(), plugins: true, mcp: Vec::new() }
+    }
+
+    fn of_grants(name: &str, grants: &[String]) -> Self {
+        Self {
+            name: name.to_string(),
+            plugins: grants.iter().any(|g| g == "plugins"),
+            mcp: grants.iter().filter_map(|g| g.strip_prefix("mcp:")).map(str::to_string).collect(),
+        }
+    }
+
+    fn reaches_anything(&self) -> bool {
+        self.plugins || !self.mcp.is_empty()
+    }
 }
 
 /// The plugins of the harness, seen from one place in a chain of calls. The
@@ -241,10 +281,12 @@ struct Plugins {
     /// How many agents deep this holder is.
     depth: usize,
     activity: Activity,
+    scope: Scope,
 }
 
 impl Plugins {
     fn load(engine: &Engine, manifest: Manifest, project: &Workspace, model: &str, activity: &Activity) -> Result<Self> {
+        let mcp = Mcp::load(engine, manifest.mcp.as_ref())?;
         let mut linker = Linker::<PluginState>::new(engine);
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         PluginModule::add_to_linker::<_, HasSelf<PluginState>>(&mut linker, |s| s)?;
@@ -261,9 +303,10 @@ impl Plugins {
             model: model.to_string(),
             project: project.clone(),
             plugins,
+            mcp,
         });
         // One instance of each now, so a plugin that cannot start says so here.
-        let all = Self { registry, depth: 0, activity: activity.clone() };
+        let all = Self { registry, depth: 0, activity: activity.clone(), scope: Scope::router() };
         for plugin in &all.registry.plugins {
             let instance = all.instantiate(plugin).map_err(|e| anyhow!("plugin '{}': {e}", plugin.spec.name))?;
             plugin.idle.lock().unwrap().push(instance);
@@ -272,18 +315,45 @@ impl Plugins {
     }
 
     fn instantiate(&self, plugin: &Plugin) -> Result<Instance> {
+        self.instantiate_with(plugin, &plugin.spec.grants)
+    }
+
+    /// A new instance with exactly these grants, which are the plugin's own or,
+    /// for an outside caller, the reduced list the manifest gives for exposure.
+    fn instantiate_with(&self, plugin: &Plugin, grants: &[String]) -> Result<Instance> {
         let (registry, spec) = (&self.registry, &plugin.spec);
+        let has = |grant: &str| grants.iter().any(|g| g == grant);
+        let scope = Scope::of_grants(&spec.name, grants);
         let state = PluginState {
             wasi: WasiState::new(&[]),
             model: spec.model.clone().unwrap_or_else(|| registry.model.clone()),
-            llm: if spec.granted("llm") { Some(LlmClient::spawn(&registry.engine, &registry.llm)?) } else { None },
-            workspace: spec.granted("workspace").then(|| registry.project.allowing(&spec.allow)),
-            plugins: spec.granted("plugins").then(|| self.clone()),
+            llm: if has("llm") { Some(LlmClient::spawn(&registry.engine, &registry.llm)?) } else { None },
+            workspace: has("workspace").then(|| registry.project.allowing(&spec.allow)),
+            plugins: scope.reaches_anything().then(|| Self { scope: scope.clone(), ..self.clone() }),
             activity: self.activity.clone(),
         };
         let mut store = Store::new(&registry.engine, state);
         let bindings = PluginModule::instantiate(&mut store, &plugin.component, &registry.linker)?;
         Ok((store, bindings))
+    }
+
+    /// Runs a plugin for an outside MCP client. Always a new instance, with only
+    /// the grants listed for exposure, and never kept for reuse.
+    fn run_exposed(&self, name: &str, grants: &[String], input: &str) -> Result<String, CallError> {
+        let plugin = self
+            .registry
+            .plugins
+            .iter()
+            .find(|p| p.spec.name == name)
+            .ok_or_else(|| CallError::NotFound(format!("there is no agent '{name}'")))?;
+        let (mut store, bindings) =
+            self.instantiate_with(plugin, grants).map_err(|e| CallError::ExecutionFailed(format!("starting '{name}': {e}")))?;
+        self.activity.agent(name, input, || {
+            bindings
+                .agentwos_core_agent()
+                .call_run(&mut store, &[message("user", input)])
+                .map_err(|e| CallError::ExecutionFailed(format!("agent '{name}' crashed: {e}")))?
+        })
     }
 
     /// Asks several plugins at the same time, each on its own thread and its
@@ -319,15 +389,24 @@ impl Tools for Plugins {
     /// The plugins that fit this project. The check is made on every call, so
     /// an expert appears as soon as the project gains what it works on.
     fn describe(&mut self) -> String {
-        let fitting = self.registry.plugins.iter().filter(|p| p.spec.fits(&self.registry.project));
-        let tools: Vec<_> = fitting
+        let fitting = self.registry.plugins.iter().filter(|p| self.scope.plugins && p.spec.fits(&self.registry.project));
+        let mut tools: Vec<Value> = fitting
             .map(|p| json!({ "name": p.spec.name, "description": p.spec.description, "when": p.spec.when }))
             .collect();
+        tools.extend(self.registry.mcp.describe(&self.scope.mcp));
         json!({ "tools": tools }).to_string()
     }
 
     /// `call.name` picks the plugin; its input is the `input` argument.
     fn invoke(&mut self, call: ToolCall) -> Result<String, CallError> {
+        // A tool of an outside MCP server goes through its sidecar, and only for
+        // a holder granted that server.
+        if self.registry.mcp.owns(&call.name) {
+            return self.registry.mcp.call(&self.scope.name, Some(&self.scope.mcp), &call.name, &call.args_json, &self.activity);
+        }
+        if !self.scope.plugins {
+            return Err(not_granted("plugins"));
+        }
         let plugins = &self.registry.plugins;
         let plugin = plugins.iter().find(|p| p.spec.name == call.name).ok_or_else(|| {
             let names = plugins.iter().map(|p| p.spec.name.as_str()).collect::<Vec<_>>().join(", ");
@@ -343,7 +422,12 @@ impl Tools for Plugins {
         let input = args["input"].as_str().unwrap_or("");
 
         // What the plugin does, and whoever it asks, is one level further in.
-        let inside = Self { depth: self.depth + 1, activity: self.activity.deeper(), ..self.clone() };
+        let inside = Self {
+            depth: self.depth + 1,
+            activity: self.activity.deeper(),
+            scope: Scope::of_grants(&plugin.spec.name, &plugin.spec.grants),
+            ..self.clone()
+        };
         let idle = plugin.idle.lock().unwrap().pop();
         let (mut store, bindings) = match idle {
             Some(instance) => instance,
@@ -388,6 +472,129 @@ fn request(default: Option<&str>, model: &str, text: &str) -> Vec<Message> {
     }
 }
 
+/// What the operator asked of the MCP sidecars instead of starting a session.
+#[derive(Default)]
+pub struct McpOptions {
+    /// Show a server's tools and, if a person agrees, pin them.
+    pub approve: Option<String>,
+    /// Connect, print each sidecar's state and counters, and exit.
+    pub status: bool,
+    /// Call `server.tool` once, as a person (arguments in `--message`), and exit.
+    pub call: Option<String>,
+    /// Answer an outside MCP client on stdin and stdout.
+    pub serve: bool,
+}
+
+/// State of the Store that serves an outside MCP client. The agents offered
+/// are the ones in `serve.expose`, each run with only the grants listed there.
+struct ServeState {
+    wasi: WasiState,
+    plugins: Plugins,
+    config: mcp::Serve,
+    guards: mcp::Guards,
+    calls: VecDeque<Instant>,
+}
+
+impl WasiView for ServeState {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        self.wasi.ctx()
+    }
+}
+
+impl TypesHost for ServeState {}
+
+impl ExposedHost for ServeState {
+    fn list_agents(&mut self) -> String {
+        let tools: Vec<Value> = self
+            .config
+            .expose
+            .iter()
+            .filter_map(|e| self.plugins.registry.plugins.iter().find(|p| p.spec.name == e.plugin))
+            .map(|p| {
+                json!({
+                    "name": p.spec.name,
+                    "description": p.spec.description,
+                    "inputSchema": { "type": "object",
+                        "properties": { "input": { "type": "string", "description": "What to ask this agent" } },
+                        "required": ["input"] },
+                })
+            })
+            .collect();
+        Value::Array(tools).to_string()
+    }
+
+    fn call_agent(&mut self, name: String, arguments: String) -> Result<String, CallError> {
+        let blocked = |mcp::Blocked(why): mcp::Blocked| CallError::InvalidInput(format!("blocked by guard {why}"));
+        let exposed = self
+            .config
+            .expose
+            .iter()
+            .find(|e| e.plugin == name)
+            .cloned()
+            .ok_or_else(|| CallError::NotFound(format!("there is no agent '{name}' to call")))?;
+
+        // Checkpoint: who is calling, and how often.
+        let minute_ago = Instant::now() - Duration::from_secs(60);
+        while self.calls.front().is_some_and(|t| *t < minute_ago) {
+            self.calls.pop_front();
+        }
+        let rate = json!({ "calls_last_minute": self.calls.len() });
+        self.guards.check("client", "caller", None, rate, json!({})).map_err(blocked)?;
+        self.calls.push_back(Instant::now());
+
+        // Checkpoint: what the client asked.
+        let arguments: Value = serde_json::from_str(&arguments).unwrap_or(Value::Null);
+        let request = self.guards.check("client", "inbound_request", Some(&name), json!({ "tool": name, "arguments": arguments }), json!({})).map_err(blocked)?;
+        let input = request.value["arguments"]["input"].as_str().ok_or_else(|| CallError::InvalidInput("this agent takes an `input` string".into()))?.to_string();
+
+        let answer = self.plugins.run_exposed(&name, &exposed.grants, &input);
+        let (text, is_error) = match &answer {
+            Ok(text) => (text.clone(), false),
+            Err(e) => (crate::runtime::error_text(e).to_string(), true),
+        };
+
+        // Checkpoint: what leaves.
+        let result = json!({ "content": [{ "type": "text", "text": text }], "isError": is_error });
+        let checked = self.guards.check("client", "inbound_result", Some(&name), result, json!({})).map_err(blocked)?;
+        let text = checked.value["content"][0]["text"].as_str().unwrap_or("").to_string();
+        if is_error { Err(CallError::ExecutionFailed(text)) } else { Ok(text) }
+    }
+}
+
+/// Answers an outside MCP client, one JSON message per line. Nothing but
+/// protocol goes to stdout.
+fn serve(engine: &Engine, plugins: Plugins, config: mcp::Serve) -> Result<()> {
+    let component = Component::new(engine, mcp::BRIDGE_SERVER)?;
+    let limits = mcp::Limits { calls_per_minute: config.calls_per_minute, ..mcp::Limits::default() };
+    let guards = mcp::Guards::new(engine, "serve", false, limits, Vec::new(), &[])?;
+    let state = ServeState { wasi: WasiState::new(&[]), plugins, config, guards, calls: VecDeque::new() };
+    let mut store = Store::new(engine, state);
+    let mut linker = Linker::<ServeState>::new(engine);
+    wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+    McpServerModule::add_to_linker::<_, HasSelf<ServeState>>(&mut linker, |s| s)?;
+    let bindings = McpServerModule::instantiate(&mut store, &component, &linker)?;
+
+    eprintln!("AgentWOS MCP server on stdin and stdout. Agents offered: {}", store.data().config.expose.iter().map(|e| e.plugin.as_str()).collect::<Vec<_>>().join(", "));
+    let mut stdout = io::stdout().lock();
+    for line in io::stdin().lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Some(reply) = bindings.agentwos_core_mcp_server().call_handle(&mut store, &line)? {
+            writeln!(stdout, "{reply}")?;
+            stdout.flush()?;
+        }
+    }
+    Ok(())
+}
+
+fn read_line() -> String {
+    let mut line = String::new();
+    let _ = io::stdin().lock().read_line(&mut line);
+    line
+}
+
 pub fn run(
     engine: &Engine,
     path: &Path,
@@ -396,8 +603,13 @@ pub fn run(
     text: Option<&str>,
     list: bool,
     trace: bool,
+    mcp_options: McpOptions,
 ) -> Result<()> {
     let manifest = Manifest::load(path)?;
+    if let Some(server) = &mcp_options.approve {
+        let config = manifest.mcp.as_ref().ok_or_else(|| anyhow!("this manifest has no `mcp` section"))?;
+        return mcp::approve(engine, config, server, &mut read_line);
+    }
     let project = Workspace::new(project.unwrap_or_else(|| manifest.workspace.clone()), manifest.timeout);
     if list {
         print_plugins(&manifest, &project);
@@ -410,7 +622,8 @@ pub fn run(
     let default = manifest.default.clone();
     let (router, llm) = (load(engine, &manifest.router)?, load(engine, &manifest.llm)?);
 
-    let interactive = text.is_none();
+    let mcp_task = mcp_options.status || mcp_options.call.is_some() || mcp_options.serve;
+    let interactive = text.is_none() && !mcp_task;
     if interactive {
         println!("AgentWOS harness, model {model}, project {}", project.root().display());
         println!("Plugins (x: not offered to agents in this project):");
@@ -420,7 +633,41 @@ pub fn run(
     }
 
     let activity = Activity::new(trace);
+    let serve_config = manifest.mcp.as_ref().and_then(|m| m.serve.clone());
     let plugins = Plugins::load(engine, manifest, &project, &model, &activity)?;
+    // What the guards flagged while connecting, and any sidecar that is not ready.
+    // In server mode stdout belongs to the protocol, so this goes to stderr.
+    let startup: Vec<String> = plugins
+        .registry
+        .mcp
+        .notes
+        .iter()
+        .cloned()
+        .chain(plugins.registry.mcp.status_lines().into_iter().filter(|l| !l.contains(": ready")))
+        .collect();
+    for line in &startup {
+        eprintln!("{line}");
+    }
+    if mcp_options.status {
+        for line in plugins.registry.mcp.status_lines() {
+            println!("{line}");
+        }
+        return Ok(());
+    }
+    if let Some(name) = &mcp_options.call {
+        let arguments = text.unwrap_or("{}");
+        let arguments = if arguments.trim_start().starts_with('{') { arguments.to_string() } else { json!({ "input": arguments }).to_string() };
+        let answer = plugins.registry.mcp.call("user", None, name, &arguments, &activity).map_err(|e| anyhow!(crate::runtime::error_text(&e).to_string()))?;
+        println!("{answer}");
+        for line in plugins.registry.mcp.status_lines() {
+            eprintln!("{line}");
+        }
+        return Ok(());
+    }
+    if mcp_options.serve {
+        let config = serve_config.ok_or_else(|| anyhow!("--mcp-serve needs `mcp.serve` in the manifest"))?;
+        return serve(engine, plugins, config);
+    }
     let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
 
     if let Some(text) = text {
