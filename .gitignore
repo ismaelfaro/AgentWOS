@@ -13,3 +13,4 @@ node_modules
 /examples/*/gen
 /examples/mcp/mcp.lock
 /examples/mcp/probe/target
+/examples/mcp-colony/mcp.lock

@@ -1,0 +1,39 @@
+{
+  "router": "../cli-harness/target/wasm32-wasip2/release/router.wasm",
+  "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
+  "model": "local/none",
+  "timeout_seconds": 20,
+  "workspace": "notes",
+
+  "plugins": [
+    {
+      "name": "desk",
+      "description": "Talks to the colony's reference desk (an outside MCP server). Input: `list`, or `<tool> <input>`.",
+      "agent": "../mcp/probe/target/wasm32-wasip2/release/mcp_probe.wasm",
+      "grants": ["mcp:colony"]
+    },
+    {
+      "name": "offline",
+      "description": "The same agent with no MCP grant: it sees no outside tools.",
+      "agent": "../mcp/probe/target/wasm32-wasip2/release/mcp_probe.wasm",
+      "grants": []
+    },
+    {
+      "name": "search",
+      "description": "Finds text in the colony notes. Input: `<pattern> [path]`.",
+      "agent": "../cli-harness/target/wasm32-wasip2/release/search.wasm",
+      "grants": ["workspace"],
+      "allow": ["grep"]
+    }
+  ],
+
+  "mcp": {
+    "servers": [
+      { "name": "colony", "url": "http://127.0.0.1:8801/mcp", "tools": ["lookup", "convert"] }
+    ],
+    "serve": {
+      "expose": [{ "plugin": "search", "grants": ["workspace"] }],
+      "limits": { "calls_per_minute": 30 }
+    }
+  }
+}
