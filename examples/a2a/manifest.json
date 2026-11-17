@@ -1,0 +1,72 @@
+{
+  "router": "../cli-harness/target/wasm32-wasip2/release/router.wasm",
+  "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
+  "model": "local/none",
+  "timeout_seconds": 60,
+  "workspace": "runs/workspace",
+  "plugins": [
+    {
+      "name": "desk",
+      "description": "Uses the A2A agent `weather`. Input: `list`, or `<skill> <message>`.",
+      "agent": "../mcp/probe/target/wasm32-wasip2/release/mcp_probe.wasm",
+      "grants": [
+        "mcp:weather",
+        "mcp:peer"
+      ]
+    },
+    {
+      "name": "echo",
+      "description": "Returns its input unchanged.",
+      "agent": "../cli-harness/target/wasm32-wasip2/release/echo.wasm"
+    }
+  ],
+  "mcp": {
+    "servers": [
+      {
+        "name": "weather",
+        "protocol": "a2a",
+        "url": "http://127.0.0.1:8811",
+        "tools": [
+          "forecast",
+          "plan",
+          "slow"
+        ],
+        "limits": {
+          "result_bytes": 4000,
+          "seconds": 30
+        }
+      },
+      {
+        "name": "weather-strict",
+        "protocol": "a2a",
+        "url": "http://127.0.0.1:8811",
+        "tools": [
+          "forecast"
+        ],
+        "strict": true
+      },
+      {
+        "name": "private",
+        "protocol": "a2a",
+        "url": "http://127.0.0.1:8813",
+        "auth": {
+          "bearer_env": "TEST_A2A_TOKEN"
+        },
+        "tools": [
+          "forecast"
+        ]
+      },
+      {
+        "name": "peer",
+        "protocol": "a2a",
+        "url": "http://127.0.0.1:8820",
+        "auth": {
+          "bearer_env": "AGENTWOS_SERVE_TOKEN"
+        },
+        "tools": [
+          "search"
+        ]
+      }
+    ]
+  }
+}
