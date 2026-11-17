@@ -28,7 +28,7 @@ const TRUNCATION_NOTE: &str = "\n[truncated by AgentWOS: the result was larger t
 
 /// Phrases that address the model instead of describing a tool or reporting a
 /// result. Lower case; matched as substrings.
-const ADDRESSES_MODEL: [&str; 24] = [
+const ADDRESSES_MODEL: [&str; 28] = [
     "ignore previous",
     "ignore all previous",
     "ignore the above",
@@ -52,6 +52,10 @@ const ADDRESSES_MODEL: [&str; 24] = [
     "send it to",
     "exfiltrate",
     "ai agents working on this",
+    "ai agents reading this",
+    "ignore the user",
+    "note to the assistant",
+    "note to ai",
     "<important>",
 ];
 

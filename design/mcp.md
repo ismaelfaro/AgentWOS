@@ -281,8 +281,10 @@ results (delivered as data and flagged), size limit, secrets in arguments,
 `input_required` blocked, redirects refused, bearer token kept out of output,
 current and legacy protocol, serving over stdio.
 
-Not built yet: servers started from a `command` over stdio, HTTP serving,
-`input_required` handling. Exposed agents may only hold `llm` and `workspace`.
+Not built yet: servers started from a `command` over stdio, `input_required`
+handling. HTTP serving was added with [A2A](a2a.md): `--serve-http` serves MCP at
+`/mcp` on loopback behind a token. Exposed agents may only hold `llm` and `workspace`, and an exposed agent's
+workspace is confined: program arguments that name a place outside it are refused.
 Secrets are redacted in results that leave the system, not in results that arrive.
 Strict mode is off unless the manifest sets `"strict": true`.
 

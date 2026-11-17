@@ -14,3 +14,6 @@ node_modules
 /examples/mcp/mcp.lock
 /examples/mcp/probe/target
 /examples/mcp-colony/mcp.lock
+/bench/results
+/examples/a2a/mcp.lock
+/examples/a2a/runs

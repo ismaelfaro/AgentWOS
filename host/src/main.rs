@@ -1,6 +1,8 @@
 mod activity;
 mod control;
 mod harness;
+mod a2a;
+mod http;
 mod mcp;
 mod prompt;
 mod runner;
@@ -63,6 +65,12 @@ struct Args {
     /// listed in the manifest's `mcp.serve.expose`.
     #[arg(long)]
     mcp_serve: bool,
+
+    /// With --harness: serve the exposed agents over HTTP on a loopback address
+    /// (for example 127.0.0.1:8820): MCP at /mcp, A2A at /a2a, and the Agent Card at
+    /// /.well-known/agent-card.json. Needs `mcp.serve.auth.bearer_env`.
+    #[arg(long, value_name = "ADDR")]
+    serve_http: Option<String>,
 
     /// Scenario WASM component (overrides the manifest).
     #[arg(long)]
@@ -136,10 +144,10 @@ fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     if let Some(path) = &args.harness {
-        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve };
+        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve, serve_http: args.serve_http };
         return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list, args.trace, mcp);
     }
-    if args.mcp_approve.is_some() || args.mcp_status || args.mcp_call.is_some() || args.mcp_serve {
+    if args.mcp_approve.is_some() || args.mcp_status || args.mcp_call.is_some() || args.mcp_serve || args.serve_http.is_some() {
         bail!("the --mcp-* options need --harness");
     }
     if args.list || args.project.is_some() {
