@@ -45,6 +45,18 @@ pub mod plugin_world {
 pub mod control_world {
     wasmtime::component::bindgen!({ world: "control-module", path: "../wit/world.wit" });
 }
+pub mod mcp_client_world {
+    wasmtime::component::bindgen!({
+        world: "mcp-client-module", path: "../wit/world.wit",
+        with: { "agentwos:core/types": crate::runtime::agent_world::agentwos::core::types },
+    });
+}
+pub mod mcp_server_world {
+    wasmtime::component::bindgen!({
+        world: "mcp-server-module", path: "../wit/world.wit",
+        with: { "agentwos:core/types": crate::runtime::agent_world::agentwos::core::types },
+    });
+}
 
 pub use agent_world::agentwos::core::llm::Host as LlmHost;
 pub use agent_world::agentwos::core::tool::Host as ToolHost;

@@ -1,0 +1,74 @@
+{
+  "router": "../cli-harness/target/wasm32-wasip2/release/router.wasm",
+  "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
+  "model": "local/none",
+  "timeout_seconds": 20,
+  "workspace": "runs/workspace",
+
+  "plugins": [
+    {
+      "name": "probe-granted",
+      "description": "Uses the MCP server `docs`.",
+      "agent": "probe/target/wasm32-wasip2/release/mcp_probe.wasm",
+      "grants": ["mcp:docs"]
+    },
+    {
+      "name": "probe-denied",
+      "description": "The same agent, with no MCP grant.",
+      "agent": "probe/target/wasm32-wasip2/release/mcp_probe.wasm",
+      "grants": ["plugins"]
+    },
+    {
+      "name": "echo",
+      "description": "Returns its input unchanged.",
+      "agent": "../cli-harness/target/wasm32-wasip2/release/echo.wasm"
+    }
+  ],
+
+  "mcp": {
+    "servers": [
+      {
+        "name": "docs",
+        "url": "http://127.0.0.1:8791/mcp",
+        "tools": ["echo"],
+        "limits": { "result_bytes": 4000, "calls_per_minute": 20 }
+      },
+      {
+        "name": "weather",
+        "url": "http://127.0.0.1:8791/mcp",
+        "tools": ["forecast"],
+        "strict": true
+      },
+      {
+        "name": "weather-lax",
+        "url": "http://127.0.0.1:8791/mcp",
+        "tools": ["forecast"]
+      },
+      {
+        "name": "legacy",
+        "url": "http://127.0.0.1:8792/mcp",
+        "tools": ["echo"]
+      },
+      {
+        "name": "private",
+        "url": "http://127.0.0.1:8793/mcp",
+        "auth": { "bearer_env": "TEST_MCP_TOKEN" },
+        "tools": ["echo"]
+      },
+      {
+        "name": "redirector",
+        "url": "http://127.0.0.1:8791/redirect",
+        "tools": ["echo"]
+      },
+      {
+        "name": "asker",
+        "url": "http://127.0.0.1:8794/mcp",
+        "tools": ["echo"]
+      }
+    ],
+    "serve": {
+      "expose": [{ "plugin": "echo", "grants": [] }],
+      "limits": { "calls_per_minute": 3 }
+    }
+  }
+}

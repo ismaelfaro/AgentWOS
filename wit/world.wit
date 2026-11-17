@@ -198,3 +198,43 @@ world actor-module {
 world stage-module {
     export stage;
 }
+
+/// MCP bridge to one outside server. One instance per server, with network
+/// access only to that server's host. `server` is JSON:
+/// `{"url": "...", "era": "current" | "legacy"}`; `era` may be omitted for `probe`.
+interface mcp-client {
+    use types.{call-error};
+
+    /// Asks the server which protocol it speaks: returns "current" or "legacy".
+    probe: func(server: string) -> result<string, call-error>;
+    /// The raw `result` of `tools/list`, as JSON.
+    list-tools: func(server: string) -> result<string, call-error>;
+    /// The raw `result` of `tools/call`, as JSON.
+    call-tool: func(server: string, name: string, arguments: string) -> result<string, call-error>;
+}
+
+/// An outside MCP client calling agents of this system. It is stateless: each
+/// message stands alone.
+interface mcp-server {
+    /// One JSON-RPC message from the client. Returns the reply, when it needs one.
+    handle: func(message: string) -> option<string>;
+}
+
+/// The agents offered to outside MCP clients. The host decides which, and runs
+/// each call with the grants listed for exposure.
+interface exposed {
+    use types.{call-error};
+
+    /// JSON array of MCP tool definitions, one per exposed agent.
+    list-agents: func() -> string;
+    call-agent: func(name: string, arguments: string) -> result<string, call-error>;
+}
+
+world mcp-client-module {
+    export mcp-client;
+}
+
+world mcp-server-module {
+    import exposed;
+    export mcp-server;
+}

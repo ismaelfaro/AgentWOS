@@ -1,6 +1,7 @@
 mod activity;
 mod control;
 mod harness;
+mod mcp;
 mod prompt;
 mod runner;
 mod runtime;
@@ -42,6 +43,26 @@ struct Args {
     /// manifest's `workspace`.
     #[arg(long)]
     project: Option<PathBuf>,
+
+    /// With --harness: show a server of the manifest's `mcp` section, with its
+    /// tools, and pin them if you agree. Agents use no server before this.
+    #[arg(long, value_name = "SERVER")]
+    mcp_approve: Option<String>,
+
+    /// With --harness: connect every MCP server, print the state and counters
+    /// of each sidecar, and exit.
+    #[arg(long)]
+    mcp_status: bool,
+
+    /// With --harness: call one tool of an MCP server as yourself, with no
+    /// model: `--mcp-call server.tool --message '{"arguments": "as JSON"}'`.
+    #[arg(long, value_name = "SERVER.TOOL")]
+    mcp_call: Option<String>,
+
+    /// With --harness: be an MCP server on stdin and stdout, offering the agents
+    /// listed in the manifest's `mcp.serve.expose`.
+    #[arg(long)]
+    mcp_serve: bool,
 
     /// Scenario WASM component (overrides the manifest).
     #[arg(long)]
@@ -115,7 +136,11 @@ fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     if let Some(path) = &args.harness {
-        return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list, args.trace);
+        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve };
+        return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list, args.trace, mcp);
+    }
+    if args.mcp_approve.is_some() || args.mcp_status || args.mcp_call.is_some() || args.mcp_serve {
+        bail!("the --mcp-* options need --harness");
     }
     if args.list || args.project.is_some() {
         bail!("--list and --project need --harness");
