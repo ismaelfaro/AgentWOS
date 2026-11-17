@@ -1,0 +1,9 @@
+# Standalone crate: the empty [workspace] keeps it out of the root workspace.
+[package]
+name = "robot-hive"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
