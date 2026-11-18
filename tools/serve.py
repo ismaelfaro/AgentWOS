@@ -20,5 +20,9 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
     root = Path(__file__).resolve().parent.parent
     handler = partial(NoCacheHandler, directory=str(root))
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), handler)
+    except OSError as e:
+        sys.exit(f"port {port} is busy ({e.strerror}); try another: tools/serve.py {port + 1}")
     print(f"serving {root} at http://127.0.0.1:{port} (no caching)")
-    ThreadingHTTPServer(("127.0.0.1", port), handler).serve_forever()
+    server.serve_forever()
