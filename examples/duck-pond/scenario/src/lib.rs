@@ -18,6 +18,8 @@ mod body;
 use std::cell::RefCell;
 
 use agentwos::core::types::Message;
+mod talk;
+
 use body::{Ball, Decision, Duck, Policy, Room, DT, MAX_RANGE_M, STATES};
 use exports::agentwos::core::scenario::Guest;
 use serde_json::{json, Value};
@@ -48,6 +50,7 @@ struct Pond {
     heard: Vec<Vec<(String, f64, f64)>>,
     // The states each body ran in the last rounds, newest last: the brain's short memory.
     history: Vec<Vec<String>>,
+    talk: talk::Talk,
     rounds: Vec<Value>,
 }
 
@@ -125,16 +128,24 @@ impl Guest for Component {
     fn setup(config: String) -> String {
         let cfg: Value = serde_json::from_str(&config).unwrap_or(Value::Null);
         let room = Room::apartment();
+        // Parallel runs differ by seed: the config's, or else the clock's.
+        let seed = cfg["seed"].as_u64().unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or(7)
+        });
         let ducks = DUCKS
             .iter()
             .enumerate()
-            .map(|(i, (name, _, x, y, h))| Duck::new(name, *x, *y, *h, 1 + i as u64, &room))
+            .map(|(i, (name, _, x, y, h))| Duck::new(name, *x, *y, *h, seed.wrapping_add(i as u64), &room))
             .collect::<Vec<_>>();
         let pond = Pond {
             model: cfg["model"].as_str().unwrap_or("local/google/gemma-4-e4b").to_string(),
             rounds_total: cfg["days"].as_u64().unwrap_or(1) as u32,
             heard: vec![Vec::new(); ducks.len()],
             history: vec![Vec::new(); ducks.len()],
+            talk: talk::Talk::new(ducks.len(), seed),
             format_ok: vec![true; ducks.len()],
             ducks,
             ball: Ball::new(1.5, 1.4),
@@ -146,6 +157,7 @@ impl Guest for Component {
             "agents": DUCKS.iter().map(|(n, p, ..)| json!({ "agent": n, "role": p })).collect::<Vec<_>>(),
             "room": pond.room.json(),
             "round_s": ROUND_S,
+            "seed": seed,
             "start": pond.ducks.iter().map(duck_json).collect::<Vec<_>>(),
         });
         POND.with(|p| *p.borrow_mut() = Some(pond));
@@ -158,8 +170,10 @@ impl Guest for Component {
                 d.start_round();
             }
             p.ball.track = vec![[p.ball.x, p.ball.y]];
+            p.talk.start_round();
             p.rounds.push(json!({
                 "day": day,
+                "talk_start": p.talk.clock,
                 "in_progress": true,
                 "collapse": false,
                 "ball_start": [p.ball.x, p.ball.y],
@@ -209,7 +223,7 @@ impl Guest for Component {
             } else {
                 p.heard[i]
                     .iter()
-                    .map(|(from, dist, b)| format!("{from} quacked {dist:.1} m {}", side(*b)))
+                    .map(|(from, dist, b)| format!("{from} {dist:.1} m {}", side(*b)))
                     .collect::<Vec<_>>()
                     .join("; ")
             };
@@ -329,6 +343,7 @@ impl Guest for Component {
                 if sample {
                     p.ball.track.push([p.ball.x, p.ball.y]);
                 }
+                p.talk.tick(&mut p.ducks, &p.ball, &p.room, DT);
             }
 
             // Quacks reach every duck in range, heard next round.
@@ -337,9 +352,14 @@ impl Guest for Component {
                     .filter(|&j| j != i && p.ducks[j].quacked)
                     .filter_map(|j| {
                         let (dist, b) = bearing(&p.ducks[i], p.ducks[j].x, p.ducks[j].y);
-                        (dist <= HEAR_M).then(|| (p.ducks[j].name.to_string(), dist, b))
+                        (dist <= HEAR_M).then(|| (format!("{} quacked", p.ducks[j].name), dist, b))
                     })
                     .collect();
+            }
+            // Sounds said this round reach the listeners as words, heard next round.
+            for &(l, sp, sound) in &p.talk.heard {
+                let (dist, b) = bearing(&p.ducks[l], p.ducks[sp].x, p.ducks[sp].y);
+                p.heard[l].push((format!("{} said {sound}", p.ducks[sp].name), dist, b));
             }
 
             let all_limp = p.ducks.iter().all(|d| d.policy == Policy::Limp);
@@ -352,6 +372,10 @@ impl Guest for Component {
                 e["end"] = duck_json(d);
             }
             round["ball_track"] = json!(p.ball.track);
+            round["talk"] = json!(p.talk.log);
+            round["vocabulary"] = json!((0..n).map(|i| p.talk.vocabulary(i)).collect::<Vec<_>>());
+            round["learned"] = json!(p.talk.learned);
+            round["missed"] = json!(p.talk.missed);
             round["in_progress"] = json!(false);
             round["collapse"] = json!(all_limp);
             all_limp

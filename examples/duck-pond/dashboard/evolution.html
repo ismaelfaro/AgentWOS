@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duck Evolution</title>
+<style>
+  :root {
+    --bg: #f3ede2; --bg2: #e9e0d0; --card: #fffdf8; --ink: #272430; --muted: #746f80; --line: #e3d9c6;
+    --accent: #f2a81d; --ok: #1f9d6b; --bad: #d64545;
+    --elite: #2fa8c0; --mutant: #8b6fd0; --newcomer: #9aa0ac; --random: #d9a21b;
+    --shadow: 0 1px 2px rgba(60,40,10,.06), 0 8px 24px rgba(60,40,10,.08);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12141a; --bg2: #171a22; --card: #1c1f29; --ink: #ecebf2; --muted: #9a98ab; --line: #2b2f3d;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+      --elite: #4cc3da; --mutant: #a68ae6; --newcomer: #7d8392; --random: #e5b52c; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, var(--bg2), transparent), var(--bg); min-height: 100vh; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+  h1 { font: 700 26px/1.1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .meta { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .pill b { color: var(--ink); font-weight: 600; }
+  a.nav { color: var(--muted); font-size: 13px; text-decoration: none; border-bottom: 1px dotted var(--muted); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 16px; }
+  .card h2 { font: 700 16px ui-rounded, system-ui; margin: 0 0 2px; }
+  .card p.hint { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { font: 11px system-ui, sans-serif; fill: var(--muted); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; color: var(--muted); font-size: 12.5px; }
+  .legend i { display: inline-block; width: 12px; height: 4px; border-radius: 2px; margin-right: 5px; vertical-align: 2px; }
+  .legend i.sq { height: 10px; width: 10px; border-radius: 3px; vertical-align: -1px; }
+  .strip { display: grid; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+  .gen { display: grid; grid-template-columns: 56px 1fr 120px; gap: 10px; align-items: center; }
+  .gen .label { font: 600 13px ui-rounded, system-ui; color: var(--muted); }
+  .bars { display: flex; gap: 4px; align-items: flex-end; height: 38px; }
+  .bar { flex: 1; min-width: 14px; border-radius: 5px 5px 2px 2px; position: relative; cursor: pointer; border: 0; padding: 0; opacity: .85; }
+  .bar:hover { opacity: 1; }
+  .bar.sel { outline: 2px solid var(--ink); outline-offset: 1px; opacity: 1; }
+  .bar.win::after { content: "★"; position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 11px; color: var(--accent); }
+  .gen .score { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .detail { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 860px) { .detail { grid-template-columns: 1fr; } }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0 12px; }
+  @media (max-width: 520px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+  .stats div { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+  .stats b { display: block; font-size: 19px; }
+  .stats span { color: var(--muted); font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 5px 6px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td .snd { font-weight: 600; }
+  td .pct { color: var(--muted); font-size: 11.5px; margin-left: 4px; }
+  td.agree { background: color-mix(in srgb, var(--ok) 13%, transparent); }
+  .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+  .empty code { background: var(--bg); padding: 2px 6px; border-radius: 6px; }
+  .note { color: var(--muted); font-size: 12.5px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Duck Evolution</h1>
+      <div class="sub">Populations of ducks inventing a language. The best survives and hands down what it learned.</div>
+    </div>
+    <div class="meta" id="meta"></div>
+    <div class="pill" id="notice" hidden></div>
+    <a class="nav" href="index.html">The pond, with the model brains</a>
+  </header>
+
+  <div id="main" hidden>
+    <div class="grid2">
+      <section class="card">
+        <h2>Fitness by generation</h2>
+        <p class="hint">Understood in a language the whole flock shares, in the second half of each run.</p>
+        <svg id="chartFit" viewBox="0 0 560 230" role="img" aria-label="Fitness by generation"></svg>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i>best of the generation</span>
+          <span><i style="background:var(--elite)"></i>average of the inheritors</span>
+          <span><i style="background:var(--newcomer)"></i>newcomers (start from nothing)</span>
+        </div>
+      </section>
+      <section class="card">
+        <h2>The shared language</h2>
+        <p class="hint">Of the best run in each generation.</p>
+        <svg id="chartLang" viewBox="0 0 560 230" role="img" aria-label="Understanding and convention by generation"></svg>
+        <div class="legend">
+          <span><i style="background:var(--ok)"></i>understanding (listener read the speaker right)</span>
+          <span><i style="background:var(--mutant)"></i>convention (the ducks use the same words)</span>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Generations</h2>
+      <p class="hint">Each bar is one run, all of a generation living at once. Bar height is fitness. A star marks the survivor whose knowledge the next generation inherits. Click a run to open it.</p>
+      <div class="strip" id="strip"></div>
+      <div class="legend">
+        <span><i class="sq" style="background:var(--random)"></i>random start</span>
+        <span><i class="sq" style="background:var(--elite)"></i>elite (the survivor, unchanged)</span>
+        <span><i class="sq" style="background:var(--mutant)"></i>mutant (the survivor, changed)</span>
+        <span><i class="sq" style="background:var(--newcomer)"></i>newcomer (from nothing)</span>
+      </div>
+    </section>
+
+    <div class="detail">
+      <section class="card">
+        <h2 id="runTitle">Run</h2>
+        <div class="stats" id="runStats"></div>
+        <p class="hint">Understanding, round by round (5-round average). The run learns as it lives.</p>
+        <svg id="chartRun" viewBox="0 0 560 190" role="img" aria-label="Understanding by round"></svg>
+        <div class="note" id="runNote"></div>
+      </section>
+      <section class="card">
+        <h2>Words this run settled on</h2>
+        <p class="hint">The sound each duck uses most for each meaning, with its share. Green cells: that duck uses the flock's most common word.</p>
+        <table id="vocab"></table>
+      </section>
+    </div>
+  </div>
+
+  <div class="card empty" id="empty">
+    No evolution log yet. Run it, then reload:<br><br>
+    <code>cd examples/duck-pond/evolve &amp;&amp; cargo run --release</code>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const NS = "http://www.w3.org/2000/svg";
+  const KIND = { random: "--random", elite: "--elite", mutant: "--mutant", newcomer: "--newcomer" };
+  let data = null, selected = null;
+  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
+
+  function loadFile(name) {
+    return new Promise((resolve) => {
+      document.getElementById("evo-data")?.remove();
+      window.EVOLUTION = undefined;
+      const s = document.createElement("script");
+      s.id = "evo-data";
+      s.src = `../runs/${name}.js?t=` + Date.now();
+      s.onload = () => resolve(window.EVOLUTION || null);
+      s.onerror = () => resolve(null);
+      document.body.append(s);
+    });
+  }
+
+  // ?file=NAME opens ../runs/NAME.js; with no name, or a missing one, the latest evolution.
+  async function load() {
+    const asked = (new URLSearchParams(location.search).get("file") || "evolution").replace(/[^\w-]/g, "");
+    let d = await loadFile(asked), fellBack = false;
+    if (!d && asked !== "evolution") { d = await loadFile("evolution"); fellBack = !!d; }
+    const note = $("notice");
+    note.hidden = !fellBack;
+    if (fellBack) note.textContent = `runs/${asked}.js not found: showing the latest evolution`;
+    return d;
+  }
+
+  // A small SVG line chart: series are [{points: [y|null...], color, dash, width}], y in 0..1.
+  function chart(svgEl, series, { w, h, xLabel, marks = [] }) {
+    svgEl.textContent = "";
+    const pad = { l: 34, r: 10, t: 10, b: 24 };
+    const add = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; svgEl.append(e); return e; };
+    const n = Math.max(...series.map((s) => s.points.length)) - 1 || 1;
+    const x = (i) => pad.l + (i / n) * (w - pad.l - pad.r), y = (v) => h - pad.b - v * (h - pad.t - pad.b);
+    for (const g of [0, 0.25, 0.5, 0.75, 1]) {
+      add("line", { x1: pad.l, x2: w - pad.r, y1: y(g), y2: y(g), stroke: css("--line"), "stroke-width": 1, "stroke-dasharray": g === 0 ? "" : "3 4" });
+      add("text", { x: pad.l - 6, y: y(g) + 4, "text-anchor": "end" }, g.toFixed(2).replace(/0$/, ""));
+    }
+    const ticks = Math.min(n, 10), step = Math.max(1, Math.round(n / ticks));
+    for (let i = 0; i <= n; i += step) add("text", { x: x(i), y: h - 6, "text-anchor": "middle" }, String(i + (xLabel || 0)));
+    for (const m of marks) add("line", { x1: x(m), x2: x(m), y1: pad.t, y2: h - pad.b, stroke: css("--ink"), "stroke-width": 1, opacity: 0.3 });
+    for (const s of series) {
+      const pts = s.points.map((v, i) => (v == null ? null : [x(i), y(v)]));
+      const d = pts.filter(Boolean).map((p) => p.join(",")).join(" ");
+      if (d) add("polyline", { points: d, fill: "none", stroke: s.color, "stroke-width": s.width || 2.4, "stroke-linejoin": "round", "stroke-linecap": "round", "stroke-dasharray": s.dash || "" });
+      if (s.dots) for (const p of pts) if (p) add("circle", { cx: p[0], cy: p[1], r: 3, fill: s.color });
+    }
+  }
+
+  const runOf = (id) => { for (const g of data.generations) for (const r of g.runs) if (r.id === id) return r; return null; };
+  const bestOf = (g) => g.runs.find((r) => r.id === g.best);
+
+  function renderCharts() {
+    const gens = data.generations;
+    const best = gens.map((g) => bestOf(g).fitness);
+    const inherit = gens.map((g) => mean(g.runs.filter((r) => r.kind === "elite" || r.kind === "mutant").map((r) => r.fitness)));
+    const fresh = gens.map((g) => mean(g.runs.filter((r) => r.kind === "newcomer").map((r) => r.fitness)));
+    chart($("chartFit"), [
+      { points: fresh, color: css("--newcomer"), dash: "5 5", width: 2 },
+      { points: inherit, color: css("--elite"), width: 2.2 },
+      { points: best, color: css("--accent"), width: 3, dots: true },
+    ], { w: 560, h: 230 });
+    chart($("chartLang"), [
+      { points: gens.map((g) => bestOf(g).understanding), color: css("--ok"), width: 2.6, dots: true },
+      { points: gens.map((g) => bestOf(g).convention), color: css("--mutant"), width: 2.6, dots: true },
+    ], { w: 560, h: 230 });
+  }
+
+  function renderStrip() {
+    const strip = $("strip"); strip.textContent = "";
+    for (const g of data.generations) {
+      const row = document.createElement("div"); row.className = "gen";
+      const label = document.createElement("div"); label.className = "label"; label.textContent = "Gen " + g.gen;
+      const bars = document.createElement("div"); bars.className = "bars";
+      for (const r of g.runs) {
+        const b = document.createElement("button"); b.className = "bar" + (r.id === g.best ? " win" : "") + (r.id === selected ? " sel" : "");
+        b.style.height = Math.max(4, r.fitness * 38) + "px"; b.style.background = `var(${KIND[r.kind]})`;
+        b.title = `${r.id} · ${r.kind} · fitness ${r.fitness.toFixed(2)}`; b.setAttribute("aria-label", b.title);
+        b.addEventListener("click", () => { selected = r.id; renderStrip(); renderRun(); });
+        bars.append(b);
+      }
+      const b = bestOf(g), score = document.createElement("div"); score.className = "score";
+      score.textContent = `best ${b.fitness.toFixed(2)} · ${b.kind}`;
+      row.append(label, bars, score); strip.append(row);
+    }
+  }
+
+  function smooth(curve) {
+    return curve.map((_, i) => mean(curve.slice(Math.max(0, i - 4), i + 1).filter((v) => v != null)));
+  }
+
+  function renderRun() {
+    const r = runOf(selected); if (!r) return;
+    $("runTitle").textContent = `${r.id} · ${r.kind}` + (r.parent ? ` (from ${r.parent})` : "");
+    const stat = (v, l) => `<div><b>${v}</b><span>${l}</span></div>`;
+    $("runStats").innerHTML = stat(r.fitness.toFixed(2), "fitness") + stat(Math.round(r.understanding * 100) + "%", "understood, 2nd half")
+      + stat(Math.round(r.first_half * 100) + "%", "understood, 1st half") + stat(Math.round(r.convention * 100) + "%", "shared words");
+    chart($("chartRun"), [{ points: smooth(r.curve), color: css("--accent"), width: 2.8 }], { w: 560, h: 190, xLabel: 1, marks: [Math.floor(r.curve.length / 2)] });
+    const p = r.params;
+    $("runNote").textContent = `Learning: +${p.reward.toFixed(2)} for a success, −${p.penalty.toFixed(2)} for a miss, speaks every ${p.gap.toFixed(1)} s at most. ${r.said} sounds, ${r.interactions} listeners. The line at the middle splits the halves.`;
+    renderVocab(r);
+  }
+
+  function renderVocab(r) {
+    const t = $("vocab"); t.textContent = "";
+    const head = document.createElement("tr");
+    head.append(document.createElement("th"));
+    data.meta.ducks.forEach((name) => { const th = document.createElement("th"); th.textContent = name; head.append(th); });
+    t.append(head);
+    data.meta.meanings.forEach((meaning, m) => {
+      const tr = document.createElement("tr");
+      const th = document.createElement("th"); th.textContent = meaning; tr.append(th);
+      const votes = {};
+      r.vocab.forEach((rows) => { votes[rows[m].sound] = (votes[rows[m].sound] || 0) + 1; });
+      const top = Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0];
+      r.vocab.forEach((rows) => {
+        const td = document.createElement("td"); if (rows[m].sound === top) td.className = "agree";
+        const s = document.createElement("span"); s.className = "snd"; s.textContent = rows[m].sound;
+        const pc = document.createElement("span"); pc.className = "pct"; pc.textContent = Math.round(rows[m].share) + "%";
+        td.append(s, pc); tr.append(td);
+      });
+      t.append(tr);
+    });
+  }
+
+  function meta() {
+    const m = data.meta, box = $("meta"); box.textContent = "";
+    for (const [k, v] of [["generations", m.gens], ["runs each", m.pop], ["rounds", `${m.rounds} × ${m.round_s}s`], ["seed", m.seed]]) {
+      const p = document.createElement("span"); p.className = "pill"; p.append(k + " "); const b = document.createElement("b"); b.textContent = v; p.append(b); box.append(p);
+    }
+  }
+
+  let sig = "";
+  async function refresh() {
+    const d = await load();
+    if (!d) return;
+    const last = d.generations.at(-1);
+    const s = JSON.stringify([d.meta.seed, d.meta.pop, d.generations.length, last.best, bestOf(last).fitness]);
+    if (s === sig) return;
+    const first = sig === "";
+    sig = s; data = d; $("main").hidden = false; $("empty").hidden = true;
+    selected = last.best;
+    meta(); renderCharts(); renderStrip(); renderRun();
+    if (first) matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (data) { renderCharts(); renderStrip(); renderRun(); } });
+  }
+  // Always watching: a new evolution replaces what is shown.
+  refresh();
+  setInterval(refresh, 4000);
+})();
+</script>
+</body>
+</html>

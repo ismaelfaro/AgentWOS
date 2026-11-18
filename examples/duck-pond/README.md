@@ -74,6 +74,105 @@ override any of this:
 The constants come from MicroDuck's `autod/src/obstacle.rs`,
 `docs/design/autonomous.md` and `docs/design/simulation.md` (Apache-2.0).
 
+## Talk: sounds that mean something (turn-based scenario)
+
+Ducks can talk. Nobody gives them a shared language: each duck starts with its
+own accent, a weight for every (meaning, sound) pair, and learns from what
+happens.
+
+- **Meanings** a duck can have: `come`, `play`, `rest`, `alarm`, `greet`. The
+  body raises them: a duck quacking means `greet`, a duck heading for another
+  duck means `come`, a duck next to the ball means `play`, a duck settling down
+  means `rest`, a duck stopped by its head sensor means `alarm`.
+- **Sounds**: `quack`, `chirp`, `honk`, `purr`, `hiss`. A duck picks the sound
+  its accent gives most weight to for the meaning.
+- **Hearing**: a duck within 3 m reads the sound as the meaning it weights
+  highest for that sound, and acts on it: `come` walks to the speaker, `play`
+  kicks the ball, `rest` naps, `alarm` moves away, `greet` quacks back.
+- **Learning**: the listener checks whether the action worked (it got closer,
+  kicked the ball, sat down, moved away, quacked). Success strengthens the pair
+  for the listener; if the listener also understood what the speaker meant, the
+  speaker's pair is strengthened too. A miss weakens the pair the listener used.
+
+Over rounds the flock settles on shared words. The dashboard shows each sound
+as a speech bubble, the round's talk (who said what, who understood and who
+misread it), and the sound each duck now uses for each meaning, with its share.
+The brain does not choose sounds yet: talk runs in the body, and the brain
+hears what was said in its next round's prompt.
+
+Limits: a listener can succeed for the wrong meaning (it walks to a speaker who
+meant `rest`, and the walk counts as `come`); this is kept as it is in the
+learning rule. Talk lives in the turn-based scenario, not in the browser stage
+yet.
+
+## Evolution: a language that survives
+
+`evolve/` runs the talk system as an evolution. A generation is a population of
+8 independent runs (or 4), all living at the same time on separate threads. Each
+run is 100 rounds of 20 s with the four ducks, who learn what sounds mean as
+they live. At the end the run with the best fitness survives and hands down
+what it learned. The next generation is:
+
+- **an elite**: the survivor's vocabulary, unchanged, played again with a new seed;
+- **mutants**: the survivor's vocabulary softened and perturbed, with its learning
+  parameters (reward, penalty, how often a duck speaks) mutated too;
+- **a newcomer**: a flock that starts from nothing, as a control. If inherited
+  knowledge did not matter, the newcomer would do as well as the rest.
+
+10 generations are run by default.
+
+**Fitness** is how well the ducks understand each other in the second half of
+the run, scaled by how much they share the same words (a language the whole flock
+uses). The first version scored understanding alone; it saturated in one
+generation, because four ducks can read each other with four different
+dictionaries. The shared-words term keeps selection working.
+
+```bash
+cd examples/duck-pond/evolve
+cargo run --release -- --pop 8 --gens 10 --rounds 100 --round-s 20 --seed 1
+# open http://localhost:8765/examples/duck-pond/dashboard/evolution.html
+```
+
+It takes about a second per run of 10 generations. `--out` changes the log;
+`dashboard/evolution.html?file=NAME` opens another one in `runs/`.
+
+**What it showed**, over 7 seeds (an evolution of 10 generations, 8 runs each):
+
+| | |
+|---|---|
+| Best fitness, generations 0-2 → 7-9 | 0.73 → 0.81 (up or equal in all 7 seeds) |
+| Inherited runs vs newcomers | 0.74 vs 0.48 (inherited ahead in all 7 seeds) |
+| Shared words, best run, generations 0-2 → 7-9 | 0.66 → 0.71 |
+
+So passing knowledge down clearly works. Selection improves things, but modestly
+and noisily: after the first generations the fitness plateaus, and the ducks
+rarely settle on one word per meaning. The learning rule (reward on success,
+penalty on a miss) is the limit, and so is the metric.
+
+**What is not the same as the pond with model brains.** The evolution uses a
+fast rule-based brain (`evolve/src/brain.rs`) instead of a language model: it
+needs millions of decisions, and a local model takes seconds for each. The
+bodies and the talk are the same code (`scenario/src/body.rs`, `talk.rs`). The
+model brains and the evolution have not been run together.
+
+## Using the dashboard
+
+The map stays in view while the panel on the right scrolls on its own. The
+panel has four tabs: **Ducks** (one compact card each; the followed duck opens
+up), **Talk** (what was said, lit as the playback reaches it), **Learning**
+(understanding over rounds) and **Words** (each duck's vocabulary).
+
+- **Play** starts the replay; the big button on the map does too.
+- **Timeline**: a dot for every sound, coloured by the duck that made it, and a
+  tick at every round boundary.
+- **Click a duck on the map** to follow it: its card opens and the map rings
+  it. Click the floor to let go.
+- **Keys**: `Space` play or pause, `←` `→` previous or next round, `Shift` with
+  an arrow moves 2 s, `Home` goes to the start, `S` changes speed
+  (1×, 2.5×, 5×, 10×), `M` turns the sound on or off.
+- The page watches `runs/latest.js` and shows a new run as soon as it is
+  written; `?run=NAME` opens `runs/NAME.js`, and falls back to the latest.
+
 ## The control: duck safety
 
 `controls/duck-safety` inspects every decision before the body runs it:
@@ -168,8 +267,11 @@ Cloudflare with Wrangler (`npx wrangler login` first). A small Worker
 - `scenario/src/lib.rs`: the `scenario` interface: prompts, parsing, the round
   log.
 - `scenario/src/body.rs`: the room and the bodies. The browser stage reuses it.
+- `scenario/src/talk.rs`: sounds, hearing and learning, in the turn-based scenario.
+- `evolve/`: the evolution (a native crate that shares `body.rs` and `talk.rs`).
 - `controls/duck-safety/`: the control, used by both front ends.
 - `dashboard/index.html`: the replay of a native run.
+- `dashboard/evolution.html`: the evolution dashboard.
 - `manifest.json`: scenario, control, model, rounds, log path.
 - `stage/`: the live stage for the browser (the `stage` interface): the six
   tools, the places and the urges.
