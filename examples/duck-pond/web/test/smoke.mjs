@@ -12,6 +12,7 @@ import { createNeedle } from "../../../../web/kernel/needle.js";
 import { instantiate as instantiateActor } from "../gen/actor/actor.js";
 import { instantiate as instantiateStage } from "../gen/stage/stage.js";
 import { instantiate as instantiateControl } from "../gen/duck-safety/duck-safety.js";
+import { think, deliver } from "../src/split.js";
 
 const here = new URL(".", import.meta.url);
 const MODEL_URL = "https://huggingface.co/Cactus-Compute/needle3/resolve/main/needle3.cact";
@@ -109,6 +110,23 @@ const end = kernel.state().ducks;
 check("ducks quack on their own", quacks >= 3, `${quacks} quacks in 150 s`);
 check("energy stays in range", end.every((d) => d.energy >= 0 && d.energy <= 1));
 console.log("\n" + end.map((d) => `${d.agent}: ${d.action} ${d.policy} energy ${(d.energy * 100).toFixed(0)}%`).join("\n"));
+
+// The split the page uses: a brain thinks on one thread, the bodies check and apply on another.
+// It must give the same answer as the one-thread cue.
+{
+  const briefs = kernel.agents.map((_, i) => kernel.stage_brief ? kernel.stage_brief(i) : stage.brief(i));
+  run("Everyone stop");
+  const turns = think(actor, briefs, kernel.agents, "Pip walk to the cushion");
+  check("think: only Pip proposes a call", turns.filter((t) => t.attempts.some((a) => a.calls.length)).map((t) => t.agent).join() === "Pip");
+  const done = deliver(kernel, turns);
+  const rec = done[0].attempts[0].calls[0];
+  check("deliver: the call is checked by the control and applied", rec.delivered?.name === "walk_to" && !rec.error && rec.verdicts.length === 1, JSON.stringify(rec.verdicts.map((v) => v.verdict)));
+  check("deliver: the body took the order", duck("Pip").action === "walk_to");
+  // A brain can be slow (about 0.8 s here) while the bodies keep ticking, which is the point.
+  const slowest = Math.max(...turns.map((t) => t.latency_ms));
+  const t0 = performance.now(); for (let i = 0; i < 20; i++) kernel.render(i);
+  check("a frame takes far less than a decision", performance.now() - t0 < slowest, `20 frames in ${(performance.now() - t0).toFixed(0)} ms, a decision took ${slowest} ms`);
+}
 
 // Safety: a tired duck is sent to nap, whatever its brain asks.
 console.log(`\n${failed ? failed + " FAILED" : "all checks passed"}`);
