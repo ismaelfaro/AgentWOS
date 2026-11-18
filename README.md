@@ -49,11 +49,13 @@ leave policy in prompts. AgentWOS takes the operating-system view instead:
 | Example | Runs on | Style |
 |---|---|---|
 | [Mars colony](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mars-colony) | Native host | Turn-based scenario |
-| [Duck pond](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-pond) | Native host | Robots: agents as the brains of MicroDuck bodies, with a safety control |
+| [Duck pond](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-pond) | Native host and browser kernel | Robots: agents as the brains of MicroDuck bodies, with a safety control |
 | [Tab Jam](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-jam) | Browser kernel | Interactive, tool calls |
 | [CLI harness](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/cli-harness) | Native host | A coding harness of small expert agents |
 | [Tab Swarm](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-swarm) | Node and browsers together | Distributed: one local agent and one per browser tab, exchanging signed intents |
 | [Robot hive](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/robot-hive) | Plain Rust, no WASM | Hive: robots that share one map and decide on their own |
+| [MCP colony](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mcp-colony) | Native host | MCP in both directions, through a sidecar the OS watches |
+| [MCP sidecar test bed](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mcp) | Native host | A server that attacks on purpose, and what the guard does about it |
 
 ## Quick start
 
@@ -111,6 +113,20 @@ rebuild shows up on reload.
   `ask` (a general question, no project context). Each expert holds only the
   grants its manifest gives it. You can also call any plugin yourself with
   `/git status`, `/python test` or `/search TODO`, with no model involved.
+- **[Tab Swarm](examples/tab-swarm/)**: one agent on your machine and one in each
+  browser tab, working together. Each tab is its own realm with its own key,
+  policy and ledger; the lead agent splits a job among them and puts the answers
+  together.
+- **[Duck pond](examples/duck-pond/)**: four [MicroDuck](https://github.com/pollen-robotics/microduck)
+  robots in an apartment. Each duck's brain is an AgentWOS agent, its body follows
+  MicroDuck's logic, and a safety control sits between the two. Runs natively with
+  a model, and in the browser with Needle.
+- **[Robot hive](examples/robot-hive/)**: six robots that share one map and decide
+  on their own. A plain Rust crate with no model and no WASM, to show a hive in
+  its simplest form.
+- **[MCP colony](examples/mcp-colony/)** and the **[MCP sidecar test bed](examples/mcp/)**:
+  MCP in both directions through a sidecar the OS attaches and watches, and a
+  server that attacks on purpose to show what the guard does about it.
 
 ## Architecture
 

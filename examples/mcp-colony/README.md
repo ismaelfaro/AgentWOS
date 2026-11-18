@@ -48,5 +48,18 @@ $host --harness $m --mcp-serve        # speak MCP on stdin and stdout
 To use another MCP server, add it under `mcp.servers` in the manifest, grant
 `mcp:<name>` to the agents that may use it, and approve it.
 
+## Files
+
+- `manifest.json`: the MCP server the agents may use, the agents and their grants,
+  and what the OS exposes as an MCP server.
+- `server.py`: the colony's reference desk, a small MCP server with `lookup` and
+  `convert`.
+- `demo.sh`: the walk-through above.
+- `notes/`: the colony notes (`crew.md`, `power.md`, `water.md`). The `search` agent
+  reads them, and it is the one agent an outside MCP client can call.
+
+The test bed that exercises the sidecar with a server that misbehaves is
+[examples/mcp](../mcp/).
+
 Limits of this first version: servers over HTTP only (no `command`/stdio servers
 yet), serving over stdio only. See [design/mcp.md](../../design/mcp.md).
