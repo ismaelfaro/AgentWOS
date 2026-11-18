@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Hive</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#667; --line:#dde1e8; --base:#0ea5c6; --ore:#e0a800; --scout:#7c5cff; --miner:#16a34a; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#111418; --card:#1a1f27; --ink:#e7ebf2; --muted:#98a2b3; --line:#2a313c; } }
+  :root[data-theme="dark"] { --bg:#111418; --card:#1a1f27; --ink:#e7ebf2; --muted:#98a2b3; --line:#2a313c; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; display: grid; gap: 14px; grid-template-columns: minmax(0,1fr) 300px; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  h1 { font-size: 20px; margin: 4px 0 8px; grid-column: 1 / -1; }
+  canvas { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+  input[type=range] { flex: 1; min-width: 160px; }
+  .legend { color: var(--muted); font-size: 13px; margin-top: 8px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 4px 0 10px; vertical-align: middle; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stats div { background: var(--bg); border-radius: 8px; padding: 8px; }
+  .stats b { display: block; font-size: 20px; }
+  .stats span { color: var(--muted); font-size: 12px; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+  li small { color: var(--muted); display: block; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Robot Hive</h1>
+  <section>
+    <canvas id="map" width="480" height="320" aria-label="Shared map of the hive"></canvas>
+    <div class="row">
+      <button id="play">Play</button>
+      <input id="tick" type="range" min="1" max="1" value="1">
+      <span id="tickLabel">tick 0</span>
+    </div>
+    <div class="legend">
+      Shared map: blank = unexplored, dot = explored, gold = ore known, cyan = base.
+      <span class="dot" style="background:var(--scout)"></span>scout
+      <span class="dot" style="background:var(--miner)"></span>miner
+    </div>
+  </section>
+  <aside style="display:grid;gap:14px;align-content:start">
+    <section>
+      <div class="stats">
+        <div><b id="delivered">0</b><span>ore delivered</span></div>
+        <div><b id="oreLeft">0</b><span>ore left in the ground</span></div>
+        <div><b id="explored">0%</b><span>map explored</span></div>
+        <div><b id="oreKnown">0</b><span>ore cells known</span></div>
+      </div>
+    </section>
+    <section>
+      <strong>What each robot did this tick</strong>
+      <ul id="actions"><li class="empty">Load a run first.</li></ul>
+    </section>
+  </aside>
+</main>
+<script src="../runs/latest.js"></script>
+<script>
+(() => {
+  const data = window.HIVE_DATA;
+  const canvas = document.getElementById("map");
+  const ctx = canvas.getContext("2d");
+  const cs = getComputedStyle(document.documentElement);
+  const color = (v) => cs.getPropertyValue(v).trim();
+  const slider = document.getElementById("tick");
+  const label = document.getElementById("tickLabel");
+  const list = document.getElementById("actions");
+  const play = document.getElementById("play");
+  if (!data) {
+    label.textContent = "no run: execute robot-hive first";
+    slider.disabled = play.disabled = true;
+    return;
+  }
+
+  const { width: W, height: H, base, ticks } = data;
+  const cell = canvas.width / W;
+  canvas.height = cell * H;
+  slider.max = ticks.length;
+
+  function draw(frame) {
+    const isDark = matchMedia("(prefers-color-scheme: dark)").matches && document.documentElement.dataset.theme !== "light";
+    const bg = isDark ? "#1a1f27" : "#ffffff";
+    const grid = isDark ? "#2a313c" : "#dde1e8";
+    const soft = isDark ? "#23293a" : "#eef1f5";
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < frame.known.length; i++) {
+      const x = i % W, y = Math.floor(i / W);
+      const c = frame.known[i];
+      ctx.fillStyle = c === " " ? bg : c === "." ? soft : c === "*" ? "#e0a800" : "#0ea5c6";
+      ctx.fillRect(x * cell, y * cell, cell, cell);
+      ctx.strokeStyle = grid;
+      ctx.strokeRect(x * cell + 0.5, y * cell + 0.5, cell - 1, cell - 1);
+    }
+    for (const r of frame.robots) {
+      const cx = r.x * cell + cell / 2, cy = r.y * cell + cell / 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, cell * 0.34, 0, Math.PI * 2);
+      ctx.fillStyle = r.role === "scout" ? "#7c5cff" : "#16a34a";
+      ctx.fill();
+      if (r.carrying > 0) {
+        ctx.fillStyle = "#e0a800";
+        ctx.beginPath();
+        ctx.arc(cx + cell * 0.3, cy - cell * 0.3, cell * 0.14, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function show(n) {
+    const frame = ticks[n - 1];
+    if (!frame) return;
+    draw(frame);
+    label.textContent = `tick ${frame.tick} of ${ticks.length}`;
+    document.getElementById("delivered").textContent = frame.delivered;
+    document.getElementById("oreLeft").textContent = frame.ore_left;
+    document.getElementById("explored").textContent = Math.round((frame.explored / (W * H)) * 100) + "%";
+    document.getElementById("oreKnown").textContent = frame.ore_known;
+    list.innerHTML = "";
+    for (const r of frame.robots) {
+      const li = document.createElement("li");
+      const strong = document.createElement("strong");
+      strong.textContent = r.name;
+      const small = document.createElement("small");
+      small.textContent = `${r.action} | carrying ${r.carrying}, energy ${r.energy}`;
+      li.append(strong, small);
+      list.append(li);
+    }
+  }
+
+  slider.addEventListener("input", () => show(Number(slider.value)));
+  let timer = null;
+  play.addEventListener("click", () => {
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+      play.textContent = "Play";
+      return;
+    }
+    play.textContent = "Pause";
+    timer = setInterval(() => {
+      let n = Number(slider.value) + 1;
+      if (n > ticks.length) n = 1;
+      slider.value = n;
+      show(n);
+    }, 120);
+  });
+  show(1);
+})();
+</script>
+</body>
+</html>
