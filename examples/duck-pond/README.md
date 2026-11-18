@@ -122,14 +122,61 @@ ball, naps and falls. A card per duck shows what its brain thought, what it
 asked for and what the body ran, the safety verdict, energy and what happened.
 The page reloads the log while a run is going.
 
+## In the browser
+
+The online demo is a second front end for the same bodies. Nothing runs on a
+server except the page and the model file: the stage, the safety control and
+[Needle](https://cactuscompute.com/needle) all run in your tab.
+
+What changes from the native run:
+
+- **The brain is Needle, not a chat model.** Each duck is an `actor` that turns
+  one plain sentence into one tool call: `walk_to`, `kick_ball`, `nap`, `zoomies`,
+  `look_around` or `stop`. `walk_to` takes a place: `cushion`, `sofa`, `table`,
+  `plant`, `shelf` or `center`.
+- **The sentence comes from you or from the duck.** Type one ("Pip walk to the
+  cushion") to a duck by name, by colour, or to everyone. An idle duck puts its
+  strongest urge into words ("Nilo take a nap") and the same brain acts on it.
+  The urges are rules that weigh each duck's personality; the model does not
+  decide what to want.
+- **The four ducks** are Pip (blue, curious), Momo (grey, playful), Nilo (white,
+  sleepy) and Lila (purple, chatty).
+- **The same safety control** checks every decision, and the page shows the
+  verdict next to what each brain decided.
+
+Build and test, from the repo root. This needs Node and Rust with `wasm32-wasip2`.
+The first build downloads the pinned Cactus engine and checks its hash.
+
+```bash
+examples/duck-pond/build-web.sh
+tools/serve.py
+# open http://localhost:8765/examples/duck-pond/web/dist/index.html
+(cd examples/duck-pond/web && node test/smoke.mjs)     # checks the stage and the control with the real model
+```
+
+The page fetches the 35 MB Needle model once and caches it. If `web/vendor/needle3.cact`
+exists when you build, it is copied next to the page and served from there;
+otherwise the page falls back to Hugging Face. The smoke test downloads the model
+into `web/vendor/` on its first run.
+
+`examples/duck-pond/deploy.sh [worker-name]` builds the page and publishes it to
+Cloudflare with Wrangler (`npx wrangler login` first). A small Worker
+(`worker/edge.js`) serves the model, so it is not uploaded with the page.
+
 ## Files
 
 - `scenario/src/lib.rs`: the `scenario` interface: prompts, parsing, the round
   log.
-- `scenario/src/body.rs`: the room and the bodies.
-- `controls/duck-safety/`: the control.
-- `dashboard/index.html`: the replay.
+- `scenario/src/body.rs`: the room and the bodies. The browser stage reuses it.
+- `controls/duck-safety/`: the control, used by both front ends.
+- `dashboard/index.html`: the replay of a native run.
 - `manifest.json`: scenario, control, model, rounds, log path.
+- `stage/`: the live stage for the browser (the `stage` interface): the six
+  tools, the places and the urges.
+- `web/`: the page (`src/`), its smoke test (`test/`) and its bundler setup.
+- `build-web.sh`: builds the browser version into `web/dist/`.
+- `deploy.sh` and `worker/edge.js`: publish to Cloudflare, and the Worker that
+  serves the model.
 - `runs/`: output, git-ignored.
 
 ## Limits
@@ -140,7 +187,9 @@ The page reloads the log while a run is going.
   MicroDuck's rules and numbers, not its code.
 - **It does not drive a real duck.** Nothing here talks to `robotd`.
 - A brain decides once per 6 s round, far slower than `autod`'s 50 Hz loop. The
-  reflexes that need speed live in the body for that reason.
+  reflexes that need speed live in the body for that reason. In the browser, an
+  idle duck asks its brain when its body has an urge, so the ducks do not decide in
+  lockstep.
 - Behaviour depends on the model. A small model repeats itself: in test runs
   with `llama-3.1-8b`, some ducks mostly quacked or looked around.
 - The chance of getting up after a fall is a fixed number, not physics.

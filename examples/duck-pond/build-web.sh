@@ -47,8 +47,11 @@ if [ -f src/main.js ]; then
     --log-level=warning
   # The engine is pinned, so it lives outside the per-build folder and stays cached.
   cp vendor/cactus.wasm dist/
-  # The model is served from the page's own folder first; Hugging Face is the fallback.
-  mkdir -p dist/model && cp vendor/needle3.cact dist/model/
+  # The model is served from the page's own folder first; Hugging Face is the fallback,
+  # so the build does not need the 35 MB file to exist.
+  if [ -f vendor/needle3.cact ]; then
+    mkdir -p dist/model && cp vendor/needle3.cact dist/model/
+  fi
   cp src/style.css "$assets/"
   sed "s#main.js#$build_id/main.js#; s#style.css#$build_id/style.css#" src/index.html > dist/index.html
 fi
