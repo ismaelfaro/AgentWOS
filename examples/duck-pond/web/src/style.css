@@ -1,0 +1,99 @@
+:root {
+    --bg: #f3ede2; --bg2: #e9e0d0; --card: #fffdf8; --ink: #272430; --muted: #746f80; --line: #e3d9c6;
+    --accent: #f2a81d; --ok: #1f9d6b; --warn: #c97a10; --bad: #d64545; --flag: #7a5af5;
+    --shadow: 0 1px 2px rgba(60,40,10,.06), 0 8px 24px rgba(60,40,10,.08);
+    --floor: #e8cfa2; --floor2: #dfc291; --plank: rgba(120,80,30,.16); --wall: #5b4a3a;
+    --furn: #b9896a; --furn2: #a37556; --rug: #cfe3dc; --rug2: #b6d3ca;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12141a; --bg2: #171a22; --card: #1c1f29; --ink: #ecebf2; --muted: #9a98ab; --line: #2b2f3d;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+      --floor: #3a3142; --floor2: #342c3c; --plank: rgba(0,0,0,.22); --wall: #0c0d12;
+      --furn: #5d5470; --furn2: #4d4560; --rug: #2c4a4a; --rug2: #254040;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12141a; --bg2: #171a22; --card: #1c1f29; --ink: #ecebf2; --muted: #9a98ab; --line: #2b2f3d;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px rgba(0,0,0,.35);
+    --floor: #3a3142; --floor2: #342c3c; --plank: rgba(0,0,0,.22); --wall: #0c0d12;
+    --furn: #5d5470; --furn2: #4d4560; --rug: #2c4a4a; --rug2: #254040;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: radial-gradient(1200px 600px at 10% -10%, var(--bg2), transparent), var(--bg);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+  .logo { width: 56px; height: 56px; flex: none; }
+  h1 { font: 700 26px/1.1 ui-rounded, "SF Pro Rounded", system-ui, sans-serif; margin: 0; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: 14px; }
+  .meta { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .pill { font-size: 12.5px; padding: 4px 10px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+  .pill b { color: var(--ink); font-weight: 600; }
+  .pill.live::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 6px; animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  .flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+  .flow div { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; position: relative; }
+  .flow strong { display: block; font: 600 14px ui-rounded, system-ui; }
+  .flow span { color: var(--muted); font-size: 13px; }
+  .flow div:not(:last-child)::after { content: "→"; position: absolute; right: -11px; top: 50%; transform: translateY(-50%); color: var(--accent); font-weight: 700; z-index: 1; }
+  @media (max-width: 720px) { .flow { grid-template-columns: 1fr; } .flow div::after { display: none; } }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
+  .stage { padding: 14px; }
+  canvas { width: 100%; display: block; border-radius: 12px; touch-action: none; }
+  .controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  button {
+    font: 600 14px ui-rounded, system-ui; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 12px; padding: 8px 14px; cursor: pointer; min-height: 40px; transition: transform .1s, background .15s;
+  }
+  button:hover { background: var(--bg2); }
+  button:active { transform: scale(.96); }
+  button.primary { background: var(--accent); border-color: transparent; color: #2a1c00; min-width: 88px; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type=range] { flex: 1; min-width: 140px; accent-color: var(--accent); height: 28px; }
+  .time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; min-width: 132px; text-align: right; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+
+  .ducks { display: grid; gap: 12px; }
+  .duck { padding: 14px; border-left: 5px solid var(--c); transition: transform .15s, box-shadow .15s; }
+  .duck.sel { transform: translateX(-3px); box-shadow: var(--shadow), 0 0 0 2px var(--c); }
+  .duck header { margin: 0 0 8px; gap: 10px; flex-wrap: nowrap; }
+  .avatar { width: 68px; height: 68px; border-radius: 16px; background: linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--c) 22%, var(--bg))); flex: none; display: grid; place-items: center; }
+  .avatar canvas, .logo canvas { display: block; }
+  .duck h2 { font: 700 16px ui-rounded, system-ui; margin: 0; }
+  .duck .role { color: var(--muted); font-size: 12.5px; line-height: 1.3; }
+  .chips { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .chip { font: 600 12px ui-rounded, system-ui; padding: 3px 9px; border-radius: 999px; background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--ink); white-space: nowrap; }
+  .chip.body { background: var(--bg); border: 1px solid var(--line); color: var(--muted); }
+  .chip.body.fallen, .chip.body.limp { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); border-color: transparent; }
+  .chip.body.sit { background: color-mix(in srgb, var(--flag) 18%, transparent); color: var(--flag); border-color: transparent; }
+  .thought { background: var(--bg); border-radius: 4px 14px 14px 14px; padding: 8px 12px; font-size: 14px; margin: 6px 0 10px; }
+  .thought:empty::before { content: "No answer from the brain: the body stands still."; color: var(--muted); font-style: italic; }
+  .energy { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+  .bar { flex: 1; height: 8px; border-radius: 99px; background: var(--bg); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 99px; background: var(--ok); transition: width .3s; }
+  .bar i.mid { background: var(--accent); }
+  .bar i.low { background: var(--bad); }
+  .verdict { margin-top: 8px; font-size: 13px; padding: 6px 10px; border-radius: 10px; }
+  .verdict.allow { color: var(--ok); padding-left: 0; }
+  .verdict.modify { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+  .verdict.block { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); }
+  .verdict.flag { background: color-mix(in srgb, var(--flag) 14%, transparent); color: var(--flag); }
+  .events { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
+  .events li::before { content: "•"; color: var(--c); margin-right: 6px; font-weight: 700; }
+  .empty { padding: 40px 20px; text-align: center; color: var(--muted); }
+  .empty code { background: var(--bg); padding: 2px 6px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+.credits { margin: 18px 4px 0; color: var(--muted); font-size: 13px; text-align: center; }
+.credits a { color: var(--ink); }

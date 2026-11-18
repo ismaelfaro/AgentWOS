@@ -27,19 +27,31 @@ impl Guest for Component {
             "rules": [
                 "A duck that is fallen or limp gets no new state: the get-up watch owns the body.",
                 format!("Below {:.0}% energy, a moving state becomes a nap.", TIRED_ENERGY * 100.0),
-                format!("Zoomies need clear ToF for {ZOOMIES_CLEAR_M} m ahead; otherwise they become a wander."),
+                format!("Zoomies need clear ToF for {ZOOMIES_CLEAR_M} m ahead; otherwise they become something calmer."),
                 "A goal outside the room is flagged; the body clamps it to the walls.",
             ],
         })
         .to_string()
     }
 
-    fn inspect(_author: String, text: String, context: String) -> Verdict {
+    /// A decision arrives in one of two shapes. The turn-based scenario sends
+    /// `{state, goal, thought}` with its duck's context; the live stage sends a
+    /// tool call `{name, arguments}` with every duck's context by name.
+    fn inspect(author: String, text: String, context: String) -> Verdict {
         let Ok(mut decision) = serde_json::from_str::<Value>(&text) else {
             return Verdict::Block("not a decision the body can run".into());
         };
-        let ctx: Value = serde_json::from_str(&context).unwrap_or(Value::Null);
-        let state = decision["state"].as_str().unwrap_or("chill").to_string();
+        let all: Value = serde_json::from_str(&context).unwrap_or(Value::Null);
+        let ctx = if all["ducks"][&author].is_object() { &all["ducks"][&author] } else { &all };
+        let tool = decision["name"].as_str().map(str::to_string);
+        // The same four moving behaviours under their tool names.
+        let state = match tool.as_deref() {
+            Some("walk_to") => "wander".to_string(),
+            Some("kick_ball") => "ball".to_string(),
+            Some("stop") => "chill".to_string(),
+            Some(other) => other.to_string(),
+            None => decision["state"].as_str().unwrap_or("chill").to_string(),
+        };
         let policy = ctx["policy"].as_str().unwrap_or("stand");
         let energy = ctx["energy"].as_f64().unwrap_or(1.0);
 
@@ -48,6 +60,9 @@ impl Guest for Component {
         }
 
         if energy < TIRED_ENERGY && MOVING.contains(&state.as_str()) {
+            if tool.is_some() {
+                return Verdict::Modify(json!({ "name": "nap", "arguments": {} }).to_string());
+            }
             decision["state"] = json!("nap");
             decision["goal"] = Value::Null;
             return Verdict::Modify(decision.to_string());
@@ -56,13 +71,16 @@ impl Guest for Component {
         if state == "zoomies" {
             if let Some(ahead) = ctx["tof_ahead_m"].as_f64() {
                 if ahead < ZOOMIES_CLEAR_M {
+                    if tool.is_some() {
+                        return Verdict::Modify(json!({ "name": "look_around", "arguments": {} }).to_string());
+                    }
                     decision["state"] = json!("wander");
                     return Verdict::Modify(decision.to_string());
                 }
             }
         }
 
-        if let (Some(goal), Some(room)) = (decision["goal"].as_array(), ctx["room"].as_array()) {
+        if let (Some(goal), Some(room)) = (decision["goal"].as_array(), all["room"].as_array()) {
             let (gx, gy) = (goal.first().and_then(Value::as_f64), goal.get(1).and_then(Value::as_f64));
             let (w, h) = (room.first().and_then(Value::as_f64), room.get(1).and_then(Value::as_f64));
             if let (Some(gx), Some(gy), Some(w), Some(h)) = (gx, gy, w, h) {

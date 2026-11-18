@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Duck pond in the browser: MicroDuck bodies, AgentWOS brains and Needle, all on this page.">
+<meta name="theme-color" content="#f3ede2">
+<title>Duck Pond</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" id="logo"></div>
+    <div>
+      <h1>Duck Pond</h1>
+      <div class="sub">MicroDuck bodies, AgentWOS brains, Needle in your browser</div>
+    </div>
+    <div class="meta" id="meta"><span class="pill live" id="status">loading the brain...</span></div>
+  </header>
+  <div class="grid" id="main" hidden>
+    <section class="card stage">
+      <canvas id="room" aria-label="Top view of the apartment with the ducks"></canvas>
+      <form class="cue" id="cueForm">
+        <input id="cue" type="text" placeholder="Tell a duck: Pip walk to the cushion" aria-label="Tell a duck what to do" autocomplete="off">
+        <button class="primary" type="submit">Send</button>
+      </form>
+      <div class="chips" id="suggest"></div>
+    </section>
+    <aside class="side">
+      <section class="card log">
+        <strong>What the brains decided</strong>
+        <ul id="log"><li class="empty">Nothing yet. Send a line, or wait: idle ducks ask their brains too.</li></ul>
+      </section>
+      <section class="ducks" id="ducks"></section>
+    </aside>
+  </div>
+  <footer class="credits">
+    Built with <a href="https://github.com/ismaelfaro/AgentWOS">AgentWOS</a> ·
+    brains run <a href="https://cactuscompute.com/needle">Needle</a> (Cactus Compute, 35 MB) ·
+    bodies follow <a href="https://github.com/pollen-robotics/microduck">MicroDuck</a> (Pollen Robotics)
+  </footer>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 # Duck pond
 
+**Online demo:** https://agentic-duck-pond.asst.workers.dev (runs in your browser: Needle loads once, about 35 MB)
+
 Four [MicroDuck](https://github.com/pollen-robotics/microduck) robots share an
 apartment. Each duck's **brain is an AgentWOS agent**; its **body follows
 MicroDuck's logic**. An OS control sits between the two.
@@ -142,3 +144,9 @@ The page reloads the log while a run is going.
 - Behaviour depends on the model. A small model repeats itself: in test runs
   with `llama-3.1-8b`, some ducks mostly quacked or looked around.
 - The chance of getting up after a fall is a fixed number, not physics.
+
+## Links
+
+- [AgentWOS](https://github.com/ismaelfaro/AgentWOS): this repository, the WebAssembly agent OS.
+- [Needle](https://cactuscompute.com/needle) by Cactus Compute: the tool-calling model that runs in the browser.
+- [MicroDuck](https://github.com/pollen-robotics/microduck) by Pollen Robotics: the robot whose logic the bodies follow.
