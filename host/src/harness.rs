@@ -315,12 +315,13 @@ impl Plugins {
     }
 
     fn instantiate(&self, plugin: &Plugin) -> Result<Instance> {
-        self.instantiate_with(plugin, &plugin.spec.grants)
+        self.instantiate_with(plugin, &plugin.spec.grants, false)
     }
 
     /// A new instance with exactly these grants, which are the plugin's own or,
-    /// for an outside caller, the reduced list the manifest gives for exposure.
-    fn instantiate_with(&self, plugin: &Plugin, grants: &[String]) -> Result<Instance> {
+    /// for an outside caller (`outside`), the reduced list the manifest gives for
+    /// exposure, with the workspace confined: no program argument may leave it.
+    fn instantiate_with(&self, plugin: &Plugin, grants: &[String], outside: bool) -> Result<Instance> {
         let (registry, spec) = (&self.registry, &plugin.spec);
         let has = |grant: &str| grants.iter().any(|g| g == grant);
         let scope = Scope::of_grants(&spec.name, grants);
@@ -328,7 +329,10 @@ impl Plugins {
             wasi: WasiState::new(&[]),
             model: spec.model.clone().unwrap_or_else(|| registry.model.clone()),
             llm: if has("llm") { Some(LlmClient::spawn(&registry.engine, &registry.llm)?) } else { None },
-            workspace: has("workspace").then(|| registry.project.allowing(&spec.allow)),
+            workspace: has("workspace").then(|| {
+                let workspace = registry.project.allowing(&spec.allow);
+                if outside { workspace.confined() } else { workspace }
+            }),
             plugins: scope.reaches_anything().then(|| Self { scope: scope.clone(), ..self.clone() }),
             activity: self.activity.clone(),
         };
@@ -347,7 +351,7 @@ impl Plugins {
             .find(|p| p.spec.name == name)
             .ok_or_else(|| CallError::NotFound(format!("there is no agent '{name}'")))?;
         let (mut store, bindings) =
-            self.instantiate_with(plugin, grants).map_err(|e| CallError::ExecutionFailed(format!("starting '{name}': {e}")))?;
+            self.instantiate_with(plugin, grants, true).map_err(|e| CallError::ExecutionFailed(format!("starting '{name}': {e}")))?;
         self.activity.agent(name, input, || {
             bindings
                 .agentwos_core_agent()

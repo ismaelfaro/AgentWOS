@@ -33,6 +33,8 @@ pub struct Workspace {
     root: PathBuf,
     allow: Vec<String>,
     timeout: Duration,
+    /// For an outside caller: no argument of a program may name a place outside the folder.
+    confine: bool,
 }
 
 /// How many folders down a `*.ext` marker is looked for, and where it is not.
@@ -52,6 +54,13 @@ fn has_suffix(folder: &Path, suffix: &str, depth: usize) -> bool {
             })
 }
 
+/// Whether an argument (or the value after `=` in `--flag=value`) names a path that
+/// is absolute, under the home folder, or climbs out with `..`.
+fn leaves_folder(arg: &str) -> bool {
+    let value = arg.split_once('=').map_or(arg, |(_, v)| v);
+    [arg, value].iter().any(|a| a.starts_with('/') || a.starts_with('~') || a.split(['/', '\\']).any(|part| part == ".."))
+}
+
 fn invalid(message: impl Into<String>) -> CallError {
     CallError::InvalidInput(message.into())
 }
@@ -65,12 +74,20 @@ impl Workspace {
     pub fn new(root: PathBuf, timeout: Duration) -> Self {
         let _ = std::fs::create_dir_all(&root);
         let root = root.canonicalize().unwrap_or(root);
-        Self { root, allow: Vec::new(), timeout }
+        Self { root, allow: Vec::new(), timeout, confine: false }
     }
 
     /// The same folder, for a holder that may run these programs.
     pub fn allowing(&self, allow: &[String]) -> Self {
         Self { allow: allow.to_vec(), ..self.clone() }
+    }
+
+    /// The same folder, with every program argument checked: a path that is
+    /// absolute, starts with `~` or climbs with `..` is refused. A program the
+    /// allowlist lets run still takes the arguments it is given, so a caller that is
+    /// not trusted must not be able to point it somewhere else.
+    pub fn confined(&self) -> Self {
+        Self { confine: true, ..self.clone() }
     }
 
     pub fn root(&self) -> &Path {
@@ -161,6 +178,12 @@ impl Workspace {
             return Err(invalid(format!("'{program}' is not an allowed program (allowed: {allowed})")));
         }
 
+        if self.confine {
+            if let Some(bad) = args.iter().find(|a| leaves_folder(a)) {
+                return Err(invalid(format!("'{bad}' names a place outside the workspace, which this caller may not reach")));
+            }
+        }
+
         let mut child = Command::new(program)
             .args(args)
             .current_dir(&self.root)
@@ -222,4 +245,19 @@ fn collect(stream: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Str
         }
         text
     })
+}
+
+#[cfg(test)]
+mod confine_tests {
+    use super::leaves_folder;
+
+    #[test]
+    fn paths_that_leave_the_folder_are_refused() {
+        for bad in ["/etc/passwd", "~/.ssh", "../x", "a/../../b", "--file=/etc/passwd", "--file=../x"] {
+            assert!(leaves_folder(bad), "{bad}");
+        }
+        for fine in ["notes", "a/b.md", "Reserve", "-rn", "target.*", "--include=*.md", "a..b"] {
+            assert!(!leaves_folder(fine), "{fine}");
+        }
+    }
 }
