@@ -106,6 +106,11 @@ for (let i = 0; i < 1500; i++) {
 check("idle ducks voice urges", urges >= 20, `${urges} urges in 150 s`);
 check("the brain understands every urge", understood === urges, `${understood}/${urges}${missed.size ? " missed: " + [...missed].join(" | ") : ""}`);
 const end = kernel.state().ducks;
+const lang = kernel.render(2000).language;
+const heardBy = lang.ducks.map((d) => d.means.filter(Boolean).length);
+check("ducks learn words for places", heardBy.some((n) => n > 0), `words known per duck: ${heardBy.join(" ")}`);
+check("ducks agree on some words", lang.agreement !== null, `agreement ${lang.agreement === null ? "n/a" : (lang.agreement * 100).toFixed(0) + "%"}`);
+console.log("language: " + JSON.stringify(lang.ducks.map((d) => [d.agent, d.means])));
 check("ducks quack on their own", quacks >= 3, `${quacks} quacks in 150 s`);
 check("energy stays in range", end.every((d) => d.energy >= 0 && d.energy <= 1));
 console.log("\n" + end.map((d) => `${d.agent}: ${d.action} ${d.policy} energy ${(d.energy * 100).toFixed(0)}%`).join("\n"));

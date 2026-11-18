@@ -319,6 +319,7 @@ function onFrame() {
   for (const e of frame.events || []) feedEvent(e);
   draw();
   updateCards();
+  if (frame.language) updateLanguage(frame.language);
 }
 
 const urgeAsked = new Set();
@@ -332,10 +333,47 @@ function queueUrge(u) {
 }
 
 const recentEvents = [];
+const lastSay = {};       // duck name -> { word, t } for the speech bubble
 function feedEvent(e) {
   recentEvents.push(e);
   if (recentEvents.length > 8) recentEvents.shift();
   if (e.text.startsWith("quacks")) logLine(`${e.agent} quacks`, e.text.replace(/^quacks: /, "because "));
+  if (e.text.startsWith("says ")) {
+    const word = e.text.split(" ")[1];
+    lastSay[e.agent] = { word, t: frame.t };
+    logLine(`${e.agent} says "${word}"`, e.text.replace(/^says \S+ /, ""));
+  }
+}
+
+let langKey = "";
+function updateLanguage(lang) {
+  const key = JSON.stringify(lang);
+  if (key === langKey) return;
+  langKey = key;
+  const box = $("lang");
+  box.textContent = "";
+  const table = document.createElement("table");
+  const head = table.insertRow();
+  head.append(Object.assign(document.createElement("th"), { textContent: "word" }));
+  for (const d of lang.ducks) head.append(Object.assign(document.createElement("th"), { textContent: d.agent }));
+  lang.words.forEach((w, s) => {
+    const row = table.insertRow();
+    row.append(Object.assign(document.createElement("td"), { textContent: `"${w}"` }));
+    for (const d of lang.ducks) {
+      const meaning = d.means[s];
+      const td = document.createElement("td");
+      td.textContent = meaning || "—";
+      if (!meaning) td.className = "none";
+      row.append(td);
+    }
+  });
+  box.append(table);
+  const agree = document.createElement("div");
+  agree.className = "agree";
+  agree.textContent = lang.agreement === null
+    ? "No word is shared yet: the ducks are still babbling."
+    : `The ducks agree on ${Math.round(lang.agreement * 100)}% of the words they know.`;
+  box.append(agree);
 }
 
 function draw() {
@@ -353,6 +391,17 @@ function draw() {
     drawDuck(sp.i, d.x, d.y, d.heading, sp.color, {
       policy: d.policy, state: d.action, quack: d.action === "quack", scheme: SCHEMES[sp.i], walking: d.policy === "walk",
     }, f, sp.i === selected);
+  }
+  // Speech bubbles: the word a duck said in the last moments.
+  ctx.font = `700 ${scale * 0.07}px ui-rounded, system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const sp of sprites) {
+    const say = lastSay[sp.d.agent];
+    if (!say || f - say.t > 2.5) continue;
+    const text = `"${say.word}"`, w = ctx.measureText(text).width + scale * 0.08, hgt = scale * 0.11;
+    const cx = X(sp.d.x), cy = Y(sp.d.y) - scale * 0.27 - (f - say.t) * scale * 0.02;
+    ctx.fillStyle = css("--card"); rr(cx - w / 2, cy - hgt / 2, w, hgt, hgt / 2); ctx.fill();
+    ctx.strokeStyle = sp.color; ctx.lineWidth = scale * 0.01; ctx.stroke();
+    ctx.fillStyle = css("--ink"); ctx.fillText(text, cx, cy + scale * 0.004);
   }
   ctx.font = `600 ${scale * 0.062}px ui-rounded, system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const sp of sprites) {

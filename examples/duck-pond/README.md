@@ -145,6 +145,31 @@ The page reloads the log while a run is going.
   with `llama-3.1-8b`, some ducks mostly quacked or looked around.
 - The chance of getting up after a fall is a fixed number, not physics.
 
+## Talking: the ducks learn words
+
+Nobody gives the ducks a language. Each duck has four sounds (`chirp`, `trill`,
+`honk`, `purr`) and no meanings. The rules:
+
+- **Speaking.** A duck that starts walking to a place says one sound for it: the
+  sound it has learned for that place, or a random one one time in five. That is
+  how a word gets tried, and how new ones get found.
+- **Hearing.** Ducks within 3 m of a speaker hear the sound, and count it with the
+  place it came with. The place is in the room, not in the sound.
+- **Learning.** A sound means a place once a duck has heard it with that place
+  clearly more often than with any other. A walk started by a heard sound, and
+  arrived at, teaches that sound again.
+- **Following.** A duck that hears a sound it has learned to mean a place
+  sometimes asks its brain to walk there. The brain (Needle) still decides how
+  to act; the word only gives it a reason.
+
+The page shows each duck's vocabulary and how often pairs of ducks agree. A
+sound with no clear meaning is shown as "—": the ducks have heard it, but it
+does not mean anything yet.
+
+Limits: the words are learned from places only, not from the ball or from
+feelings. Ducks do not talk to a person: a person speaks to ducks, and the ducks
+speak to each other.
+
 ## Links
 
 - [AgentWOS](https://github.com/ismaelfaro/AgentWOS): this repository, the WebAssembly agent OS.
