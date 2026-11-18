@@ -1,0 +1,8 @@
+{
+  "name": "duck-pond",
+  "scenario": "scenario/target/wasm32-wasip2/release/duck_pond.wasm",
+  "controls": ["controls/duck-safety/target/wasm32-wasip2/release/control_duck_safety.wasm"],
+  "model": "local/google/gemma-4-e4b",
+  "days": 12,
+  "log": "runs/latest.js"
+}

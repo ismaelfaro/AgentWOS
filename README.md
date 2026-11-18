@@ -49,9 +49,11 @@ leave policy in prompts. AgentWOS takes the operating-system view instead:
 | Example | Runs on | Style |
 |---|---|---|
 | [Mars colony](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mars-colony) | Native host | Turn-based scenario |
+| [Duck pond](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-pond) | Native host | Robots: agents as the brains of MicroDuck bodies, with a safety control |
 | [Tab Jam](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-jam) | Browser kernel | Interactive, tool calls |
 | [CLI harness](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/cli-harness) | Native host | A coding harness of small expert agents |
 | [Tab Swarm](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-swarm) | Node and browsers together | Distributed: one local agent and one per browser tab, exchanging signed intents |
+| [Robot hive](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/robot-hive) | Plain Rust, no WASM | Hive: robots that share one map and decide on their own |
 
 ## Quick start
 
