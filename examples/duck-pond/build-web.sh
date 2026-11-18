@@ -3,7 +3,7 @@
 #   1. Rust components (stage, duck safety, shared actor) -> wasm32-wasip2
 #   2. Cactus engine (cactus.js + cactus.wasm), pinned and checksum-verified
 #   3. jco: components -> JS + core wasm
-#   4. esbuild: kernel worker and page bundles
+#   4. esbuild: the body worker, the brain worker and the page
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
@@ -42,7 +42,7 @@ transpile "$here/controls/duck-safety/target/wasm32-wasip2/release/control_duck_
 
 if [ -f src/main.js ]; then
   # Generated code and cactus.js keep Node-only branches that never run in a browser.
-  npx esbuild src/worker.js src/main.js --bundle --format=esm --target=es2022 --outdir="$assets" \
+  npx esbuild src/worker.js src/brain.js src/main.js --bundle --format=esm --target=es2022 --outdir="$assets" \
     --external:node:* --external:fs --external:path --external:crypto --external:url --external:module \
     --log-level=warning
   # The engine is pinned, so it lives outside the per-build folder and stays cached.

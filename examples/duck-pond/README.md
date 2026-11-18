@@ -143,6 +143,19 @@ What changes from the native run:
   sleepy) and Lila (purple, chatty).
 - **The same safety control** checks every decision, and the page shows the
   verdict next to what each brain decided.
+- **Two workers, so the animation never waits for the model.** A decision from
+  Needle takes about 0.8 s per duck addressed, and it blocks the thread it runs
+  on. The bodies tick in one worker (`web/src/worker.js`) and the brains think in
+  another (`web/src/brain.js`); the page passes each cue from the brains to the
+  bodies, which check it with the control and apply it (`web/src/split.js`). The
+  bodies tick ten times a second on a timer, and the page draws every display
+  frame in between, easing from one body frame to the next. A duck whose brain
+  is working shows three dots over its head and "thinking…" on its card. Before
+  this, the bodies and the model shared one worker and the page stopped asking
+  for frames while a cue ran, so the pond froze for as long as the model took:
+  3 s for "Everyone walk to the table" on a quiet machine, 12 s on a loaded one.
+  The page also opens as soon as the bodies are ready, before the 35 MB model
+  has finished loading.
 
 Build and test, from the repo root. This needs Node and Rust with `wasm32-wasip2`.
 The first build downloads the pinned Cactus engine and checks its hash.
@@ -173,7 +186,9 @@ Cloudflare with Wrangler (`npx wrangler login` first). A small Worker
 - `manifest.json`: scenario, control, model, rounds, log path.
 - `stage/`: the live stage for the browser (the `stage` interface): the six
   tools, the places and the urges.
-- `web/`: the page (`src/`), its smoke test (`test/`) and its bundler setup.
+- `web/`: the page (`src/`: `main.js` the page, `worker.js` the bodies, `brain.js`
+  the model, `split.js` the two halves of a cue), its smoke test (`test/`) and its
+  bundler setup.
 - `build-web.sh`: builds the browser version into `web/dist/`.
 - `deploy.sh` and `worker/edge.js`: publish to Cloudflare, and the Worker that
   serves the model.
