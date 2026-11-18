@@ -134,6 +134,7 @@ exists, and stories that show it working.
 | Choosing the model for a coding agent: benchmark and knowledge table (plan) | [Benchmark](benchmark.md) | [Build](build/benchmark.md) | [Stories](stories/benchmark.md) |
 | Sending each piece of work to the right expert, with decision models (plan) | [Router](router.md) | [Build](build/router.md) | [Stories](stories/router.md) |
 | Calling MCP servers and being called by MCP clients, always through a guard | [MCP](mcp.md) | [Build](build/mcp.md) | [Stories](stories/mcp.md) |
+| Calling remote agents and being called by them, as a sidecar like MCP | [A2A](a2a.md) | [Build](build/a2a.md) | [Stories](stories/a2a.md) |
 
 Supporting documents:
 
