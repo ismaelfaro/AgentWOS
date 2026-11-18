@@ -1,0 +1,25 @@
+{
+  "router": "../cli-harness/target/wasm32-wasip2/release/router.wasm",
+  "llm": "../../modules/llm-call/target/wasm32-wasip2/release/llm_call.wasm",
+  "model": "local/none",
+  "timeout_seconds": 20,
+  "workspace": "../mcp-colony/notes",
+
+  "plugins": [
+    {
+      "name": "search",
+      "description": "Finds text in the colony notes. Input: a grep pattern.",
+      "agent": "../cli-harness/target/wasm32-wasip2/release/search.wasm",
+      "grants": ["workspace"],
+      "allow": ["grep"]
+    }
+  ],
+
+  "mcp": {
+    "serve": {
+      "expose": [{ "plugin": "search", "grants": ["workspace"] }],
+      "auth": { "bearer_env": "AGENTWOS_SERVE_TOKEN" },
+      "limits": { "calls_per_minute": 30 }
+    }
+  }
+}

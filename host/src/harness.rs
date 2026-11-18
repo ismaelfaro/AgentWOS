@@ -487,6 +487,8 @@ pub struct McpOptions {
     pub call: Option<String>,
     /// Answer an outside MCP client on stdin and stdout.
     pub serve: bool,
+    /// Answer outside MCP and A2A callers over HTTP, on this loopback address.
+    pub serve_http: Option<String>,
 }
 
 /// State of the Store that serves an outside MCP client. The agents offered
@@ -567,7 +569,7 @@ impl ExposedHost for ServeState {
 
 /// Answers an outside MCP client, one JSON message per line. Nothing but
 /// protocol goes to stdout.
-fn serve(engine: &Engine, plugins: Plugins, config: mcp::Serve) -> Result<()> {
+fn serve(engine: &Engine, plugins: Plugins, config: mcp::Serve, http_addr: Option<&str>) -> Result<()> {
     let component = Component::new(engine, mcp::BRIDGE_SERVER)?;
     let limits = mcp::Limits { calls_per_minute: config.calls_per_minute, ..mcp::Limits::default() };
     let guards = mcp::Guards::new(engine, "serve", false, limits, Vec::new(), &[])?;
@@ -578,7 +580,11 @@ fn serve(engine: &Engine, plugins: Plugins, config: mcp::Serve) -> Result<()> {
     McpServerModule::add_to_linker::<_, HasSelf<ServeState>>(&mut linker, |s| s)?;
     let bindings = McpServerModule::instantiate(&mut store, &component, &linker)?;
 
-    eprintln!("AgentWOS MCP server on stdin and stdout. Agents offered: {}", store.data().config.expose.iter().map(|e| e.plugin.as_str()).collect::<Vec<_>>().join(", "));
+    let offered = store.data().config.expose.iter().map(|e| e.plugin.as_str()).collect::<Vec<_>>().join(", ");
+    if let Some(addr) = http_addr {
+        return serve_http(addr, &mut store, &bindings, &offered);
+    }
+    eprintln!("AgentWOS MCP server on stdin and stdout. Agents offered: {offered}");
     let mut stdout = io::stdout().lock();
     for line in io::stdin().lock().lines() {
         let line = line?;
@@ -591,6 +597,68 @@ fn serve(engine: &Engine, plugins: Plugins, config: mcp::Serve) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Answers outside callers over HTTP on a loopback address: MCP at `/mcp`, A2A at
+/// `/a2a`, and the Agent Card. Every request needs the token; the same guards
+/// run as over stdio because both end in `call_agent`.
+fn serve_http(addr: &str, store: &mut Store<ServeState>, bindings: &McpServerModule, offered: &str) -> Result<()> {
+    let var = store
+        .data()
+        .config
+        .bearer_env
+        .clone()
+        .ok_or_else(|| anyhow!("serving over HTTP needs `mcp.serve.auth.bearer_env` in the manifest: nothing is served without a token"))?;
+    let token = std::env::var(&var).map_err(|_| anyhow!("set ${var}: it holds the token that callers must present"))?;
+    if token.len() < 16 {
+        bail!("${var} is too short to be a token: use at least 16 characters");
+    }
+    let listener = crate::http::listen(addr)?;
+    let local = listener.local_addr()?;
+    let url = format!("http://{local}/a2a");
+    let skills: Vec<crate::a2a::Skill> = serde_json::from_str::<Vec<Value>>(&store.data_mut().list_agents())?
+        .iter()
+        .map(|a| crate::a2a::Skill {
+            id: a["name"].as_str().unwrap_or("").to_string(),
+            name: a["name"].as_str().unwrap_or("").to_string(),
+            description: a["description"].as_str().unwrap_or("").to_string(),
+        })
+        .collect();
+    eprintln!("AgentWOS serving on http://{local}: MCP at /mcp, A2A at /a2a, card at /.well-known/agent-card.json. Agents offered: {offered}");
+
+    let mut tasks = crate::a2a::Tasks::default();
+    crate::http::serve(listener, &token, &mut |request| {
+        use crate::http::Response;
+        match (request.method.as_str(), request.path.as_str()) {
+            ("GET", "/.well-known/agent-card.json") => Response::json(200, &crate::a2a::card(&skills, &url)),
+            ("POST", "/a2a") => {
+                let Ok(body) = serde_json::from_slice::<Value>(&request.body) else {
+                    return Response::json(400, &json!({ "error": "the body is not JSON" }));
+                };
+                let version = request.headers.get("a2a-version").map(String::as_str);
+                let reply = crate::a2a::handle(&mut tasks, &skills, version, &body, &mut |skill, text| {
+                    match store.data_mut().call_agent(skill.to_string(), json!({ "input": text }).to_string()) {
+                        Ok(text) => crate::a2a::Outcome::Done(text),
+                        Err(CallError::InvalidInput(why)) if why.starts_with("blocked by guard") => crate::a2a::Outcome::Refused(why),
+                        Err(e) => crate::a2a::Outcome::Failed(crate::runtime::error_text(&e).to_string()),
+                    }
+                });
+                Response::json(200, &reply)
+            }
+            ("POST", "/mcp") => {
+                let Ok(body) = String::from_utf8(request.body) else {
+                    return Response::json(400, &json!({ "error": "the body is not text" }));
+                };
+                match bindings.agentwos_core_mcp_server().call_handle(&mut *store, &body) {
+                    Ok(Some(reply)) => Response { status: 200, body: reply.into_bytes() },
+                    Ok(None) => Response::empty(202),
+                    Err(e) => Response::json(500, &json!({ "error": format!("the MCP bridge failed: {e}") })),
+                }
+            }
+            (_, "/a2a" | "/mcp" | "/.well-known/agent-card.json") => Response::json(405, &json!({ "error": "method not allowed" })),
+            _ => Response::json(404, &json!({ "error": "not found" })),
+        }
+    })
 }
 
 fn read_line() -> String {
@@ -626,7 +694,7 @@ pub fn run(
     let default = manifest.default.clone();
     let (router, llm) = (load(engine, &manifest.router)?, load(engine, &manifest.llm)?);
 
-    let mcp_task = mcp_options.status || mcp_options.call.is_some() || mcp_options.serve;
+    let mcp_task = mcp_options.status || mcp_options.call.is_some() || mcp_options.serve || mcp_options.serve_http.is_some();
     let interactive = text.is_none() && !mcp_task;
     if interactive {
         println!("AgentWOS harness, model {model}, project {}", project.root().display());
@@ -668,9 +736,9 @@ pub fn run(
         }
         return Ok(());
     }
-    if mcp_options.serve {
-        let config = serve_config.ok_or_else(|| anyhow!("--mcp-serve needs `mcp.serve` in the manifest"))?;
-        return serve(engine, plugins, config);
+    if mcp_options.serve || mcp_options.serve_http.is_some() {
+        let config = serve_config.ok_or_else(|| anyhow!("serving needs `mcp.serve` in the manifest"))?;
+        return serve(engine, plugins, config, mcp_options.serve_http.as_deref());
     }
     let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
 

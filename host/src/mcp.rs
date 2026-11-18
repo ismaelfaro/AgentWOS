@@ -41,6 +41,8 @@ use crate::runtime::{error_text, load, plain_store, CallError, WasiState};
 /// Compiled into the kernel: see `build.rs`.
 const BUILTIN_GUARD: &[u8] = include_bytes!("../../modules/mcp-guard/target/wasm32-wasip2/release/mcp_guard.wasm");
 const BRIDGE_CLIENT: &[u8] = include_bytes!("../../modules/mcp-client/target/wasm32-wasip2/release/mcp_client.wasm");
+/// The same bridge interface, speaking A2A: a remote agent's skills are its tools.
+const BRIDGE_A2A: &[u8] = include_bytes!("../../modules/a2a-client/target/wasm32-wasip2/release/a2a_client.wasm");
 pub const BRIDGE_SERVER: &[u8] = include_bytes!("../../modules/mcp-server/target/wasm32-wasip2/release/mcp_server.wasm");
 
 /// Grants an agent may be given when it is offered to outside MCP clients.
@@ -75,6 +77,8 @@ impl Default for Limits {
 #[derive(Clone)]
 pub struct ServerConfig {
     pub name: String,
+    /// `mcp` (the default) or `a2a`.
+    pub protocol: String,
     pub url: String,
     scheme: String,
     host: String,
@@ -101,6 +105,8 @@ pub struct Exposed {
 pub struct Serve {
     pub expose: Vec<Exposed>,
     pub calls_per_minute: u64,
+    /// The environment variable that holds the token an outside caller must present over HTTP.
+    pub bearer_env: Option<String>,
 }
 
 pub struct McpConfig {
@@ -150,7 +156,7 @@ impl McpConfig {
 
         let mut servers: Vec<ServerConfig> = Vec::new();
         for s in raw["servers"].as_array().into_iter().flatten() {
-            let known = ["name", "url", "command", "auth", "tools", "inputs", "limits", "guards", "strict"];
+            let known = ["name", "protocol", "url", "command", "auth", "tools", "inputs", "limits", "guards", "strict"];
             if let Some(unknown) = s.as_object().and_then(|o| o.keys().find(|k| !known.contains(&k.as_str()))) {
                 bail!("mcp server: unknown key `{unknown}`");
             }
@@ -163,6 +169,10 @@ impl McpConfig {
             }
             if s.get("command").is_some() {
                 bail!("mcp server '{name}': `command` (a local program over stdio) is not supported in this build; use `url`");
+            }
+            let protocol = s["protocol"].as_str().unwrap_or("mcp").to_string();
+            if protocol != "mcp" && protocol != "a2a" {
+                bail!("mcp server '{name}': `protocol` is \"mcp\" or \"a2a\", not \"{protocol}\"");
             }
             let url = s["url"].as_str().ok_or_else(|| anyhow!("mcp server '{name}' needs a `url`"))?.to_string();
             let (scheme, host, port) = split_url(&url).map_err(|e| anyhow!("mcp server '{name}': {e}"))?;
@@ -181,6 +191,7 @@ impl McpConfig {
             };
             servers.push(ServerConfig {
                 name,
+                protocol,
                 url,
                 scheme,
                 host,
@@ -213,7 +224,7 @@ impl McpConfig {
                     }
                     expose.push(Exposed { plugin, grants });
                 }
-                Some(Serve { expose, calls_per_minute: number(&v["limits"]["calls_per_minute"], 30) })
+                Some(Serve { expose, calls_per_minute: number(&v["limits"]["calls_per_minute"], 30), bearer_env: v["auth"]["bearer_env"].as_str().map(str::to_string) })
             }
         };
         Ok(Self { servers, serve, lock: base.join("mcp.lock") })
@@ -833,10 +844,15 @@ impl Mcp {
     /// before any agent runs.
     pub fn load(engine: &Engine, config: Option<&McpConfig>) -> Result<Self> {
         let Some(config) = config.filter(|c| !c.servers.is_empty()) else { return Ok(Self::none()) };
-        let client = Component::new(engine, BRIDGE_CLIENT)?;
+        let mcp = Component::new(engine, BRIDGE_CLIENT)?;
+        let a2a = Component::new(engine, BRIDGE_A2A)?;
         let lock = Lock::read(&config.lock)?;
         let mut notes = Vec::new();
-        let servers = config.servers.iter().map(|s| connect(engine, &client, s, &lock, &mut notes)).collect::<Result<Vec<_>>>()?;
+        let servers = config
+            .servers
+            .iter()
+            .map(|s| connect(engine, if s.protocol == "a2a" { &a2a } else { &mcp }, s, &lock, &mut notes))
+            .collect::<Result<Vec<_>>>()?;
         Ok(Self { servers, notes })
     }
 
@@ -914,7 +930,7 @@ pub fn approve(engine: &Engine, config: &McpConfig, server: &str, input: &mut dy
         let names = config.servers.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join(", ");
         anyhow!("there is no MCP server '{server}' in the manifest (servers: {names})")
     })?;
-    let client = Component::new(engine, BRIDGE_CLIENT)?;
+    let client = Component::new(engine, if cfg.protocol == "a2a" { BRIDGE_A2A } else { BRIDGE_CLIENT })?;
     let mut guards = Guards::new(engine, &cfg.name, cfg.strict, cfg.limits.clone(), cfg.inputs.clone(), &cfg.guards)?;
     let mut bridge = Bridge::spawn(engine, &client, cfg)?;
 
@@ -923,7 +939,11 @@ pub fn approve(engine: &Engine, config: &McpConfig, server: &str, input: &mut dy
     let listed: Value = serde_json::from_str(&listed)?;
     let tools = listed["tools"].as_array().cloned().unwrap_or_default();
 
-    println!("MCP server '{}' at {} speaks the {era} protocol and offers {} tools.", cfg.name, cfg.url, tools.len());
+    if cfg.protocol == "a2a" {
+        println!("A2A agent '{}' at {} offers {} skills (each one a tool).", cfg.name, cfg.url, tools.len());
+    } else {
+        println!("MCP server '{}' at {} speaks the {era} protocol and offers {} tools.", cfg.name, cfg.url, tools.len());
+    }
     let hidden: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).filter(|n| !cfg.tools.iter().any(|a| a == n)).collect();
     if !hidden.is_empty() {
         println!("Hidden from agents (not in the manifest's `tools`): {}", hidden.join(", "));
