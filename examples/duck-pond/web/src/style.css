@@ -97,3 +97,4 @@
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 .credits { margin: 18px 4px 0; color: var(--muted); font-size: 13px; text-align: center; }
 .credits a { color: var(--ink); }
+.sub a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

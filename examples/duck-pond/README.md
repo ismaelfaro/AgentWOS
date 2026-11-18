@@ -1,4 +1,4 @@
-# Duck pond
+# Duck pond: [MicroDuck](https://github.com/pollen-robotics/microduck) bodies, [AgentWOS](https://github.com/ismaelfaro/AgentWOS) brains, [Needle](https://cactuscompute.com/needle) in the browser
 
 **Online demo:** https://agentic-duck-pond.asst.workers.dev (runs in your browser: Needle loads once, about 35 MB)
 
