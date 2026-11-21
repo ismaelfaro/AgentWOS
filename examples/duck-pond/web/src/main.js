@@ -99,12 +99,17 @@ window.__pond = { frames: 0, draws: 0, maxGapMs: 0 };
     g.restore();
   }
   // A small canvas with one duck on it, for the cards and the header.
+  function paintPortrait(cv, c, pose) {
+    const g = cv.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.translate(cv.width * 0.38, cv.height * 0.95);
+    drawModel(g, c, (cv.height * 0.88) / 92, pose || {});
+  }
   function portrait(c, pose, px) {
     const cv = document.createElement("canvas"), dpr = window.devicePixelRatio || 1;
     cv.width = cv.height = px * dpr; cv.style.width = cv.style.height = px + "px";
-    const g = cv.getContext("2d");
-    g.translate(cv.width * 0.38, cv.height * 0.95);
-    drawModel(g, c, (cv.height * 0.88) / 92, pose || {});
+    paintPortrait(cv, c, pose);
     return cv;
   }
 
@@ -442,42 +447,62 @@ function draw(now = performance.now()) {
   ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
 }
 
-let cardsSig = "";
-function updateCards() {
-  if (!frame) return;
-  // Frames come ten times a second; the cards only need rebuilding when something on them changed.
-  const sig = JSON.stringify([frame.ducks.map((d) => [d.action, d.place, d.policy, Math.round(d.energy * 100)]), lastBrain, selected, [...thinking]]);
-  if (sig === cardsSig) return;
-  cardsSig = sig;
+// The cards are built once and updated in place. Rebuilding them (as the first version
+// did, ten times a second) invalidated styles and layout for the whole document and
+// repainted half a million pixels each time, which a browser profile shows plainly.
+const cards = [];
+const set = (node, text) => { if (node._t !== text) { node._t = text; node.textContent = text; } };
+const setClass = (node, cls) => { if (node._c !== cls) { node._c = cls; node.className = cls; } };
+
+function buildCards() {
   const box = $("ducks");
   box.textContent = "";
   frame.ducks.forEach((d, i) => {
-    const card = document.createElement("article");
-    card.className = "card duck" + (i === selected ? " sel" : "");
+    const el = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+    const card = el("article", "card duck");
     card.style.setProperty("--c", COLORS[i % COLORS.length]);
-    const head = document.createElement("header");
-    const av = document.createElement("div"); av.className = "avatar";
-    av.append(portrait(SCHEMES[i % SCHEMES.length], { sit: d.policy === "sit", beak: d.action === "quack" ? 0.18 : 0 }, 64));
-    const who = document.createElement("div");
-    const h = document.createElement("h2"); h.textContent = d.agent;
-    const role = document.createElement("div"); role.className = "role"; role.textContent = setup.agents[i].role;
+    const head = el("header");
+    const av = el("div", "avatar");
+    const cv = portrait(SCHEMES[i % SCHEMES.length], {}, 64);
+    av.append(cv);
+    const who = el("div");
+    const h = el("h2"); h.textContent = d.agent;
+    const role = el("div", "role"); role.textContent = setup.agents[i].role;
     who.append(h, role);
-    const chips = document.createElement("div"); chips.className = "chips";
-    const doing = document.createElement("span"); doing.className = "chip"; doing.textContent = d.action.replace("_", " ") + (d.place ? ` · ${d.place}` : "");
-    const body = document.createElement("span"); body.className = "chip body " + d.policy; body.textContent = "body: " + d.policy;
-    chips.append(doing, body);
+    const chips = el("div", "chips");
+    const doing = el("span"), bodyChip = el("span");
+    chips.append(doing, bodyChip);
     head.append(av, who, chips);
-    const thought = document.createElement("div"); thought.className = "thought";
-    const b = lastBrain[d.agent];
-    thought.textContent = thinking.has(d.agent) ? "thinking…" : b ? `${b.text}${b.verdict ? "  ·  " + b.verdict : ""}` : "";
-    const energy = document.createElement("div"); energy.className = "energy";
-    const bar = document.createElement("div"); bar.className = "bar";
-    const fill = document.createElement("i"); fill.style.width = Math.round(d.energy * 100) + "%";
-    fill.className = d.energy < 0.2 ? "low" : d.energy < 0.5 ? "mid" : "";
-    bar.append(fill); energy.append("energy", bar, Math.round(d.energy * 100) + "%");
+    const thought = el("div", "thought");
+    const energy = el("div", "energy"), bar = el("div", "bar"), fill = el("i"), pct = document.createElement("span");
+    bar.append(fill); energy.append("energy", bar, pct);
     card.append(head, thought, energy);
     card.addEventListener("click", () => { selected = selected === i ? -1 : i; updateCards(); draw(); });
     box.append(card);
+    cards.push({ card, cv, doing, bodyChip, thought, fill, pct, pose: "" });
+  });
+}
+
+function updateCards() {
+  if (!frame) return;
+  if (!cards.length) buildCards();
+  frame.ducks.forEach((d, i) => {
+    const c = cards[i];
+    setClass(c.card, "card duck" + (i === selected ? " sel" : ""));
+    setClass(c.doing, "chip");
+    set(c.doing, d.action.replace("_", " ") + (d.place ? ` · ${d.place}` : ""));
+    setClass(c.bodyChip, "chip body " + d.policy);
+    set(c.bodyChip, "body: " + d.policy);
+    const b = lastBrain[d.agent];
+    set(c.thought, thinking.has(d.agent) ? "thinking…" : b ? `${b.text}${b.verdict ? "  ·  " + b.verdict : ""}` : "");
+    const e = Math.round(d.energy * 100);
+    const w = e + "%";
+    if (c.fill._w !== w) { c.fill._w = w; c.fill.style.width = w; }
+    setClass(c.fill, d.energy < 0.2 ? "low" : d.energy < 0.5 ? "mid" : "");
+    set(c.pct, w);
+    // The portrait changes only when the duck sits down or quacks, so repaint only then.
+    const pose = `${d.policy === "sit"}|${d.action === "quack"}`;
+    if (c.pose !== pose) { c.pose = pose; paintPortrait(c.cv, SCHEMES[i % SCHEMES.length], { sit: d.policy === "sit", beak: d.action === "quack" ? 0.18 : 0 }); }
   });
 }
 
