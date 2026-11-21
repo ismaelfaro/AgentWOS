@@ -1,6 +1,7 @@
 # Duck pond: [MicroDuck](https://github.com/pollen-robotics/microduck) bodies, [AgentWOS](https://github.com/ismaelfaro/AgentWOS) brains, [Needle](https://cactuscompute.com/needle) in the browser
 
 **Online demo:** https://agentic-duck-pond.asst.workers.dev (runs in your browser: Needle loads once, about 35 MB)
+· **New: [Duck soccer](soccer/README.md)**, two against two: https://agentic-duck-pond.asst.workers.dev/soccer.html
 
 Four [MicroDuck](https://github.com/pollen-robotics/microduck) robots share an
 apartment. Each duck's **brain is an AgentWOS agent**; its **body follows
@@ -144,6 +145,25 @@ The page reloads the log while a run is going.
 - Behaviour depends on the model. A small model repeats itself: in test runs
   with `llama-3.1-8b`, some ducks mostly quacked or looked around.
 - The chance of getting up after a fall is a fixed number, not physics.
+
+## In the browser
+
+`build-web.sh` builds two pages that run everything in one tab, with no server
+after the first load: the pond (`web/dist/index.html`) and the football match
+(`web/dist/soccer.html`, see [soccer/README.md](soccer/README.md)). Each duck's
+brain is the shared `actor` component with Needle. The bodies run in a worker
+on their own clock, ten ticks a second, while a brain thinks; the page draws the
+poses in between at screen rate.
+
+Needle answers in about 150 ms. All ducks use the same system prompt, so the
+engine prepares it once (about 700 ms on the first call) and reuses it.
+
+```bash
+examples/duck-pond/build-web.sh
+(cd examples/duck-pond/web && node test/smoke.mjs)   # the pond, with the real model
+(cd examples/duck-pond/web && node test/soccer.mjs)  # the match
+examples/duck-pond/deploy.sh                         # publish to Cloudflare (needs wrangler login)
+```
 
 ## Talking: the ducks learn words
 

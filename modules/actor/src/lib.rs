@@ -36,6 +36,19 @@ fn addressed(clause: &str, aliases: &[String]) -> bool {
     aliases.iter().any(|a| words.iter().any(|w| w == a))
 }
 
+/// The clause without the words that only say who it is for ("Pip attack" ->
+/// "attack"). A small model can take a name for part of the request.
+fn without_aliases(clause: &str, aliases: &[String]) -> String {
+    let kept: Vec<&str> = clause
+        .split_whitespace()
+        .filter(|w| {
+            let bare = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+            !aliases.iter().any(|a| *a == bare)
+        })
+        .collect();
+    if kept.is_empty() { clause.to_string() } else { kept.join(" ") }
+}
+
 /// Names of the required parameters of `tool_name` in an OpenAI-style tool list.
 fn required_params(tools: &Value, tool_name: &str) -> Vec<String> {
     tools
@@ -77,12 +90,16 @@ impl Guest for Component {
             .map(|a| a.iter().filter_map(Value::as_str).map(str::to_lowercase).collect())
             .unwrap_or_default();
 
+        // Optional: send the model the clause without the alias that addressed it.
+        let strip = brief["strip_aliases"].as_bool().unwrap_or(false);
+
         let mut attempts = Vec::new();
         for clause in clauses(&input) {
             if !aliases.is_empty() && !addressed(&clause, &aliases) {
                 continue;
             }
-            let raw = tool_llm::call(system, &tools, &clause)?;
+            let asked = if strip { without_aliases(&clause, &aliases) } else { clause.clone() };
+            let raw = tool_llm::call(system, &tools, &asked)?;
             let reply: Value = serde_json::from_str(&raw)
                 .map_err(|e| CallError::ExecutionFailed(format!("llm reply is not JSON: {e}")))?;
             let confidence = reply["confidence"].as_f64().unwrap_or(0.0);

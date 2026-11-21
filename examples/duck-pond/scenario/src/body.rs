@@ -175,6 +175,9 @@ pub struct Duck {
     pub policy: Policy,
     pub decision: Decision,
     pub rng: Rng,
+    /// The ToF reflex. Off while a duck plays the ball: MicroDuck's soccer has no
+    /// obstacle avoidance, or two ducks at one ball would only dodge each other.
+    pub reflex: bool,
     // Body-level timers.
     moving_s: f64,
     sit_s: f64,
@@ -228,6 +231,7 @@ impl Duck {
             policy: Policy::Stand,
             decision: Decision { state: "chill".into(), goal: None, thought: String::new() },
             rng: Rng::new(seed),
+            reflex: true,
             moving_s: 0.0,
             sit_s: 0.0,
             down_s: 0.0,
@@ -416,7 +420,7 @@ pub fn step(room: &Room, ducks: &mut [Duck], ball: &mut Ball, i: usize) {
     // The ToF reflex, as autod's gate: slow and steer under REACT_M, spin away under STOP_M.
     let steer_away = if left >= right { MAX_WZ } else { -MAX_WZ };
     let reacting = ahead.is_some_and(|(dist, _)| dist < REACT_M);
-    if vx > 0.0 {
+    if vx > 0.0 && d.reflex {
         if let Some((dist, what)) = ahead {
             if dist < STOP_M {
                 vx = 0.0;

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the browser version and leaves a static site in web/dist.
+# Builds the browser versions (the pond and the football match) and leaves a
+# static site in web/dist.
 #   1. Rust components (stage, duck safety, shared actor) -> wasm32-wasip2
 #   2. Cactus engine (cactus.js + cactus.wasm), pinned and checksum-verified
 #   3. jco: components -> JS + core wasm
@@ -9,7 +10,8 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 web="$here/web"
 
-for crate in "$root/modules/actor" "$here/stage" "$here/controls/duck-safety"; do
+for crate in "$root/modules/actor" "$here/stage" "$here/controls/duck-safety" \
+             "$here/soccer/stage" "$here/controls/referee"; do
   (cd "$crate" && cargo build --release --target wasm32-wasip2)
 done
 
@@ -39,17 +41,18 @@ transpile() { # wasm name
 transpile "$root/modules/actor/target/wasm32-wasip2/release/actor.wasm" actor
 transpile "$here/stage/target/wasm32-wasip2/release/duck_pond_stage.wasm" stage
 transpile "$here/controls/duck-safety/target/wasm32-wasip2/release/control_duck_safety.wasm" duck-safety
+transpile "$here/soccer/stage/target/wasm32-wasip2/release/duck_soccer_stage.wasm" soccer-stage
+transpile "$here/controls/referee/target/wasm32-wasip2/release/control_referee.wasm" referee
 
-if [ -f src/main.js ]; then
-  # Generated code and cactus.js keep Node-only branches that never run in a browser.
-  npx esbuild src/worker.js src/main.js --bundle --format=esm --target=es2022 --outdir="$assets" \
-    --external:node:* --external:fs --external:path --external:crypto --external:url --external:module \
-    --log-level=warning
-  # The engine is pinned, so it lives outside the per-build folder and stays cached.
-  cp vendor/cactus.wasm dist/
-  # The model is served from the page's own folder first; Hugging Face is the fallback.
-  mkdir -p dist/model && cp vendor/needle3.cact dist/model/
-  cp src/style.css "$assets/"
-  sed "s#main.js#$build_id/main.js#; s#style.css#$build_id/style.css#" src/index.html > dist/index.html
-fi
+# Generated code and cactus.js keep Node-only branches that never run in a browser.
+npx esbuild src/worker.js src/main.js src/soccer-worker.js src/soccer.js --bundle --format=esm --target=es2022 --outdir="$assets" \
+  --external:node:* --external:fs --external:path --external:crypto --external:url --external:module \
+  --log-level=warning
+# The engine is pinned, so it lives outside the per-build folder and stays cached.
+cp vendor/cactus.wasm dist/
+# The model is served from the page's own folder first; Hugging Face is the fallback.
+mkdir -p dist/model && cp vendor/needle3.cact dist/model/
+cp src/style.css "$assets/"
+sed "s#main.js#$build_id/main.js#; s#style.css#$build_id/style.css#" src/index.html > dist/index.html
+sed "s#soccer.js#$build_id/soccer.js#; s#style.css#$build_id/style.css#" src/soccer.html > dist/soccer.html
 echo "built: $web/dist"

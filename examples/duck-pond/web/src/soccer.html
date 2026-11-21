@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Duck soccer in the browser: two teams of MicroDuck robots, AgentWOS brains and Needle, all on this page.">
+<meta name="theme-color" content="#f3ede2">
+<title>Duck Soccer · MicroDuck + AgentWOS + Needle</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo" id="logo"></div>
+    <div>
+      <h1>Duck Soccer</h1>
+      <div class="sub"><a href="https://github.com/pollen-robotics/microduck">MicroDuck</a> bodies · <a href="https://github.com/ismaelfaro/AgentWOS">AgentWOS</a> brains · <a href="https://cactuscompute.com/needle">Needle</a> in your browser</div>
+    </div>
+    <div class="meta">
+      <a class="pill nav" href="index.html">Pond</a>
+      <span class="pill nav here">Football</span>
+      <span class="pill live" id="status">loading the brain...</span>
+    </div>
+  </header>
+  <div class="grid" id="main" hidden>
+    <section class="card stage">
+      <div class="score" aria-live="polite">
+        <span class="team sky"><b>Sky</b> <i id="scoreSky">0</i></span>
+        <span class="clock" id="clock">0:00</span>
+        <span class="team sun"><i id="scoreSun">0</i> <b>Sun</b></span>
+      </div>
+      <canvas id="room" aria-label="Top view of the pitch with the ducks"></canvas>
+      <form class="cue" id="cueForm">
+        <input id="cue" type="text" placeholder="Coach a duck: Pip attack" aria-label="Coach a duck" autocomplete="off">
+        <button class="primary" type="submit">Send</button>
+      </form>
+      <div class="chips" id="suggest"></div>
+      <div class="speed" role="group" aria-label="Match speed">
+        <span>Speed</span>
+        <button type="button" data-speed="1">×1</button>
+        <button type="button" data-speed="2" class="on">×2</button>
+        <button type="button" data-speed="4">×4</button>
+      </div>
+    </section>
+    <aside class="side">
+      <section class="card log">
+        <strong id="refTitle">Referee</strong>
+        <ul class="rules" id="rules"></ul>
+      </section>
+      <section class="card log">
+        <strong>What the brains decided</strong>
+        <ul id="log"><li class="empty">Waiting for the kick-off whistle.</li></ul>
+      </section>
+      <section class="ducks" id="ducks"></section>
+    </aside>
+  </div>
+  <footer class="credits">
+    Built with <a href="https://github.com/ismaelfaro/AgentWOS">AgentWOS</a> ·
+    brains run <a href="https://cactuscompute.com/needle">Needle</a> (Cactus Compute, 35 MB) ·
+    bodies follow <a href="https://github.com/pollen-robotics/microduck">MicroDuck</a> (Pollen Robotics)
+  </footer>
+</div>
+<script type="module" src="soccer.js"></script>
+</body>
+</html>
