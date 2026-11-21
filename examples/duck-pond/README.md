@@ -143,19 +143,56 @@ What changes from the native run:
   sleepy) and Lila (purple, chatty).
 - **The same safety control** checks every decision, and the page shows the
   verdict next to what each brain decided.
-- **Two workers, so the animation never waits for the model.** A decision from
-  Needle takes about 0.8 s per duck addressed, and it blocks the thread it runs
-  on. The bodies tick in one worker (`web/src/worker.js`) and the brains think in
-  another (`web/src/brain.js`); the page passes each cue from the brains to the
-  bodies, which check it with the control and apply it (`web/src/split.js`). The
-  bodies tick ten times a second on a timer, and the page draws every display
-  frame in between, easing from one body frame to the next. A duck whose brain
-  is working shows three dots over its head and "thinking…" on its card. Before
-  this, the bodies and the model shared one worker and the page stopped asking
-  for frames while a cue ran, so the pond froze for as long as the model took:
-  3 s for "Everyone walk to the table" on a quiet machine, 12 s on a loaded one.
-  The page also opens as soon as the bodies are ready, before the 35 MB model
-  has finished loading.
+
+### Using the page
+
+- **Type a line** in the box under the map and press Enter or **Send**. Name a
+  duck, its colour, or "everyone"; the chips under the box are lines that work.
+  The line under the box says what will happen to what you type: it waits for
+  the brains while they load, waits in line behind another duck's thought, or
+  runs now.
+- **Ducks** tab: one card per duck with what it is doing, its body's state, what
+  its brain last decided and the safety verdict, and its energy. A duck whose
+  brain is working shows "thinking…" on its card and three dots over its head;
+  one that has not asked its brain yet says so. Click a card to ring the duck
+  on the map.
+- **Decisions** tab: every line, newest first, with the time, who did what and
+  why, and the safety verdict. Your own lines are marked "you". The tab counts
+  the decisions you have not seen.
+- The map stays in view while the panel scrolls; on a phone the panel goes under
+  the map. "How it works" folds out the three steps.
+
+### Why the animation does not wait for the model
+
+A decision from Needle takes about 0.8 s per duck addressed, and it blocks the
+thread it runs on. So the page uses two workers:
+
+- `web/src/worker.js` holds the bodies (the stage) and the safety control. It
+  never waits for a model.
+- `web/src/brain.js` holds Needle and the actor.
+- The page passes each line to the brains, then hands what they decided to the
+  bodies, which check it with the control and apply it (`web/src/split.js` has
+  the two halves).
+
+The bodies tick ten times a second on a timer, and the page draws every display
+frame in between, easing from one body frame to the next. The page opens as soon
+as the bodies are ready, before the 35 MB model has finished loading, and a bar
+under the header shows the model loading. The duck cards are built once and
+updated in place.
+
+Before, the bodies and the model shared one worker and the page stopped asking
+for frames while a line ran, so the pond froze for as long as the model took.
+Measured in a browser with the same line ("Everyone walk to the table") in the
+same minute:
+
+| | One worker (before) | Two workers (now) |
+|---|---|---|
+| Body frames during an 11 s decision | 1 | 94 |
+| Longest freeze | 12.3 s | 0.23 s |
+
+A Safari timeline of the old page also showed the cards being rebuilt about ten
+times a second, each time invalidating layout for the whole page; in 6 s it
+created and removed 208 card nodes, each with a new canvas. Now none are.
 
 Build and test, from the repo root. This needs Node and Rust with `wasm32-wasip2`.
 The first build downloads the pinned Cactus engine and checks its hash.
@@ -164,7 +201,7 @@ The first build downloads the pinned Cactus engine and checks its hash.
 examples/duck-pond/build-web.sh
 tools/serve.py
 # open http://localhost:8765/examples/duck-pond/web/dist/index.html
-(cd examples/duck-pond/web && node test/smoke.mjs)     # checks the stage and the control with the real model
+(cd examples/duck-pond/web && node test/smoke.mjs)     # the stage, the control and the two-worker split, with the real model
 ```
 
 The page fetches the 35 MB Needle model once and caches it. If `web/vendor/needle3.cact`
@@ -174,7 +211,9 @@ into `web/vendor/` on its first run.
 
 `examples/duck-pond/deploy.sh [worker-name]` builds the page and publishes it to
 Cloudflare with Wrangler (`npx wrangler login` first). A small Worker
-(`worker/edge.js`) serves the model, so it is not uploaded with the page.
+(`worker/edge.js`) serves the model, so it is not uploaded with the page. The
+script writes an `.assetsignore` so Wrangler's own files and the Worker's code
+are not published as static files.
 
 ## Files
 
@@ -205,6 +244,10 @@ Cloudflare with Wrangler (`npx wrangler login` first). A small Worker
   reflexes that need speed live in the body for that reason. In the browser, an
   idle duck asks its brain when its body has an urge, so the ducks do not decide in
   lockstep.
+- In the browser there is one brain thread, so lines are handled one at a time:
+  a line for everyone takes four ducks' worth of thinking, and the next waits.
+  A duck's own urge that waits more than 12 s is dropped, since the duck has
+  moved on. The animation does not wait either way.
 - Behaviour depends on the model. A small model repeats itself: in test runs
   with `llama-3.1-8b`, some ducks mostly quacked or looked around.
 - The chance of getting up after a fall is a fixed number, not physics.
