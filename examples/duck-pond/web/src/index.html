@@ -16,23 +16,39 @@
       <h1>Duck Pond</h1>
       <div class="sub"><a href="https://github.com/pollen-robotics/microduck">MicroDuck</a> bodies · <a href="https://github.com/ismaelfaro/AgentWOS">AgentWOS</a> brains · <a href="https://cactuscompute.com/needle">Needle</a> in your browser</div>
     </div>
-    <div class="meta" id="meta"><span class="pill live" id="status">loading the brain...</span></div>
+    <div class="meta" id="meta"><span class="pill" id="status">starting…</span></div>
   </header>
-  <div class="grid" id="main" hidden>
-    <section class="card stage">
-      <canvas id="room" aria-label="Top view of the apartment with the ducks"></canvas>
-      <form class="cue" id="cueForm">
-        <input id="cue" type="text" placeholder="Tell a duck: Pip walk to the cushion" aria-label="Tell a duck what to do" autocomplete="off">
-        <button class="primary" type="submit">Send</button>
-      </form>
-      <div class="chips" id="suggest"></div>
-    </section>
-    <aside class="side">
-      <section class="card log">
-        <strong>What the brains decided</strong>
-        <ul id="log"><li class="empty">Nothing yet. Send a line, or wait: idle ducks ask their brains too.</li></ul>
+  <div class="loadbar" id="loadbar" role="progressbar" aria-label="Loading the brains" aria-valuemin="0" aria-valuemax="100"><i id="loadfill"></i></div>
+  <details class="how">
+    <summary>How it works</summary>
+    <div class="flow">
+      <div><strong>1 · You or the duck</strong><span>You type a line to a duck, or an idle duck puts its strongest urge into words.</span></div>
+      <div><strong>2 · Brain</strong><span>Needle turns the line into one tool call: walk to a place, kick the ball, nap...</span></div>
+      <div><strong>3 · Safety and body</strong><span>An OS control checks the call; MicroDuck's gait, reflexes and falls run it.</span></div>
+    </div>
+  </details>
+
+  <div class="layout" id="main" hidden>
+    <div class="stage-col">
+      <section class="card stage">
+        <canvas id="room" aria-label="Top view of the apartment with the ducks"></canvas>
+        <form class="cue" id="cueForm">
+          <input id="cue" type="text" placeholder="Pip walk to the cushion" aria-label="Tell a duck what to do" aria-describedby="hint" autocomplete="off" enterkeyhint="send">
+          <button class="primary" type="submit">Send</button>
+        </form>
+        <div class="hint" id="hint" aria-live="polite">Name a duck (Pip, Momo, Nilo, Lila), its colour, or "everyone".</div>
+        <div class="suggest" id="suggest" aria-label="Try one of these"></div>
       </section>
-      <section class="ducks" id="ducks"></section>
+    </div>
+    <aside class="card side">
+      <div class="tabs" role="tablist" aria-label="The ducks and their brains">
+        <button class="tab" role="tab" id="tab-ducks" aria-controls="panel-ducks" aria-selected="true">Ducks</button>
+        <button class="tab" role="tab" id="tab-log" aria-controls="panel-log" aria-selected="false">Decisions<span class="count" id="logCount" hidden></span></button>
+      </div>
+      <div class="panel" role="tabpanel" id="panel-ducks" aria-labelledby="tab-ducks"><div class="ducks" id="ducks"></div></div>
+      <div class="panel" role="tabpanel" id="panel-log" aria-labelledby="tab-log" hidden>
+        <ul class="log" id="log"><li class="empty">Nothing yet. Send a line, or wait: idle ducks ask their brains too.</li></ul>
+      </div>
     </aside>
   </div>
   <footer class="credits">

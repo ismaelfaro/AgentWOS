@@ -222,10 +222,35 @@ function status(text, cls = "") {
   el.className = "pill " + cls;
 }
 
+// The thin bar under the header: how much of the model has loaded.
+function loading(fraction) {
+  const bar = $("loadbar");
+  bar.hidden = fraction >= 1;
+  $("loadfill").style.width = Math.round(fraction * 100) + "%";
+  bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+}
+
+// The line under the text box: what will happen to what you type, right now.
+function hint() {
+  const el = $("hint");
+  const waiting = queue.filter((q) => !q.urge).length;
+  if (!brainReady) {
+    el.textContent = "The brains are still loading. The ducks move on their own meanwhile; a line you send waits until they are ready.";
+    el.className = "hint wait";
+  } else if (waiting) {
+    el.textContent = `Your line is waiting for a brain (${waiting} in line).`;
+    el.className = "hint wait";
+  } else {
+    el.textContent = 'Name a duck (Pip, Momo, Nilo, Lila), its colour, or "everyone".';
+    el.className = "hint";
+  }
+}
+
 function send(text, why = "") {
   if (!text) return;
   queue.push({ text, why, urge: why !== "you", at: performance.now() });
   pump();
+  hint();
 }
 
 // Which ducks a cue is for, by name, colour or "everyone": the ones that will be thinking.
@@ -245,19 +270,35 @@ function pump() {
   cuePending = true;
   thinking = ducksNamed(next.text);
   brain.postMessage({ type: "think", id: ++cueId, text: next.text, briefs, agents: setup.agents.map((a) => a.agent) });
-  next.why && logLine(`${next.text}`, next.why);
+  next.why && logLine(`${next.text}`, next.why === "you" ? "you asked" : next.why, next.why === "you" ? "you" : "");
   updateCards();
+  hint();
 }
 
-function logLine(head, body) {
+// The decisions log: newest first, who did what, and why, on its own line.
+let logged = 0, logSeen = 0;
+function logLine(head, body, cls = "") {
   const log = $("log");
   log.querySelector(".empty")?.remove();
   const li = document.createElement("li");
+  if (cls) li.className = cls;
+  const when = document.createElement("time");
+  const t = new Date();
+  when.textContent = `${String(t.getMinutes()).padStart(2, "0")}:${String(t.getSeconds()).padStart(2, "0")}`;
   const b = document.createElement("strong"); b.textContent = head;
-  const s = document.createElement("small"); s.textContent = body;
-  li.append(b, s);
+  const small = document.createElement("small"); small.textContent = body;
+  li.append(when, b, small);
   log.prepend(li);
-  while (log.children.length > 24) log.lastElementChild.remove();
+  while (log.children.length > 40) log.lastElementChild.remove();
+  logged++;
+  paintLogCount();
+}
+// Unread decisions, shown on the tab while you look at the ducks.
+function paintLogCount() {
+  const c = $("logCount"), unread = $("panel-log").hidden ? logged - logSeen : 0;
+  if ($("panel-log").hidden === false) logSeen = logged;
+  c.textContent = unread > 99 ? "99+" : String(unread);
+  c.hidden = unread <= 0;
 }
 
 function describeCue(result) {
@@ -298,7 +339,7 @@ body.onmessage = ({ data: m }) => {
     cuePending = false;
     thinking = new Set();
     describeCue({ turns: m.turns });
-    for (const t of m.turns) if (!lastBrain[t.agent]) lastBrain[t.agent] = { text: "no answer", verdict: "" };
+    hint();
     updateCards();
     pump();
   } else if (m.type === "error") {
@@ -312,10 +353,14 @@ brain.onmessage = ({ data: m }) => {
     if (brainReady) return;
     const pct = m.total ? ` ${Math.round((m.loaded / m.total) * 100)}%` : "";
     status(`loading the brains: ${m.label}${pct}`);
+    // The model is most of the wait: show its share on the bar.
+    if (m.label === "model" && m.total) loading(m.loaded / m.total);
   } else if (m.type === "ready") {
     brainReady = true;
     status("live", "live");
+    loading(1);
     pump();
+    hint();
   } else if (m.type === "thought") {
     // What the brains decided goes to the bodies, which check and apply it.
     body.postMessage({ type: "deliver", id: m.id, turns: m.turns });
@@ -327,6 +372,30 @@ brain.onmessage = ({ data: m }) => {
 
 body.postMessage({ type: "init" });
 brain.postMessage({ type: "init" });
+
+// ---------- tabs ----------
+const TABS = ["ducks", "log"];
+function selectTab(name, focus) {
+  if (!TABS.includes(name)) name = "ducks";
+  for (const n of TABS) {
+    const on = n === name;
+    $("tab-" + n).setAttribute("aria-selected", String(on)); $("tab-" + n).tabIndex = on ? 0 : -1;
+    $("panel-" + n).hidden = !on;
+  }
+  if (focus) $("tab-" + name).focus();
+  try { localStorage.setItem("duck-pond-web-tab", name); } catch {}
+  paintLogCount();
+}
+for (const n of TABS) {
+  $("tab-" + n).addEventListener("click", () => selectTab(n));
+  $("tab-" + n).addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    selectTab(TABS[(TABS.indexOf(n) + 1) % TABS.length], true);
+  });
+}
+{ let saved = "ducks"; try { saved = localStorage.getItem("duck-pond-web-tab") || "ducks"; } catch {} selectTab(saved); }
+hint();
 
 // ---------- the page ----------
 function suggestions() {

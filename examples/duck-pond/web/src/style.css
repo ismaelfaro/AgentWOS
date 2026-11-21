@@ -98,3 +98,58 @@
 .credits { margin: 18px 4px 0; color: var(--muted); font-size: 13px; text-align: center; }
 .credits a { color: var(--ink); }
 .sub a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------- the web page's own pieces ---------- */
+[hidden] { display: none !important; }
+header { margin-bottom: 10px; }
+.loadbar { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 0 0 10px; }
+.loadbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.how { margin-bottom: 12px; }
+.how summary { cursor: pointer; color: var(--muted); font-size: 13px; width: fit-content; padding: 4px 0; }
+.how .flow { margin: 8px 0 0; }
+
+/* The map stays in view; the side panel scrolls on its own. */
+.layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+.stage-col { position: sticky; top: 12px; }
+@media (max-width: 960px) { .layout { grid-template-columns: 1fr; } .stage-col { position: static; } }
+
+.cue { display: flex; gap: 8px; margin-top: 12px; }
+.cue input {
+  flex: 1; min-width: 0; font: 16px/1.3 system-ui, sans-serif; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; min-height: 44px;
+}
+.cue input::placeholder { color: var(--muted); }
+.cue input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cue button { min-height: 44px; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 6px 2px 0; min-height: 1.4em; }
+.hint.wait { color: var(--warn); }
+.suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip-btn { font: 500 13px system-ui, sans-serif; min-height: 34px; padding: 5px 11px; border-radius: 999px; background: var(--bg); }
+
+.side { display: flex; flex-direction: column; max-height: calc(100vh - 24px); min-height: 420px; overflow: hidden; }
+@media (max-width: 960px) { .side { max-height: none; } }
+.tabs { display: flex; gap: 4px; padding: 8px 8px 0; border-bottom: 1px solid var(--line); }
+.tab { border: 0; background: transparent; border-radius: 10px 10px 0 0; padding: 8px 12px; min-height: 40px; color: var(--muted); position: relative; }
+.tab:hover { background: var(--bg2); }
+.tab[aria-selected="true"] { color: var(--ink); background: var(--bg); }
+.tab[aria-selected="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 3px; border-radius: 3px; background: var(--accent); }
+.count { margin-left: 6px; font-size: 11px; background: var(--accent); color: #2a1c00; border-radius: 99px; padding: 1px 7px; }
+.panel { overflow: auto; padding: 12px; flex: 1; }
+
+/* Compact duck cards: four fit in the panel without scrolling on a laptop. */
+.ducks { gap: 10px; }
+.duck { padding: 10px 12px; cursor: pointer; }
+.duck.sel { transform: none; }
+.duck header { margin-bottom: 6px; }
+.avatar { width: 52px; height: 52px; border-radius: 13px; }
+.duck .role { font-size: 12px; }
+.thought { font-size: 13px; padding: 6px 10px; margin: 4px 0 8px; }
+.thought:empty::before { content: "No idea yet: the duck has not asked its brain."; }
+
+.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.log li { padding: 7px 4px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr; column-gap: 10px; align-items: baseline; }
+.log li.empty { display: block; border: 0; }
+.log time { color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; grid-row: span 2; }
+.log strong { font: 600 14px ui-rounded, system-ui; }
+.log small { color: var(--muted); font-size: 12.5px; grid-column: 2; }
+.log li.you strong::before { content: "you · "; color: var(--accent); font-weight: 700; }
