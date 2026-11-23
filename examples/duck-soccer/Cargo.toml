@@ -1,0 +1,13 @@
+# Standalone crate: the empty [workspace] keeps it out of the root workspace.
+[package]
+name = "duck-soccer"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
