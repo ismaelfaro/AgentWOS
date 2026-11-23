@@ -40,6 +40,18 @@ Self-improvement, which can start as soon as step 1 exists:
 16. **Components, the Scout, and resuming workflows.** Candidates that are new
     code or come from outside; `resume` for long workflows.
 
+Persistent agents, which build on step 1 and part of which already exists (the
+ledger and the dashboard, [Dashboard](dashboard.md)):
+
+17. **Principal, surface and via on intents; split `observe`.**
+18. **Mailbox, then Clock**, each its own grant.
+19. **Policy by context and the decider.**
+20. **Journal and replay.**
+21. **Notes, curator, recall; cases and behaviour evals; parents.**
+
+The detail and the order inside this group are in
+[Persistence](persistence.md) and [its build notes](build/persistence.md).
+
 Steps 1 to 8 and 12 to 15 need one machine. The distributed steps add proof
 (signatures, tokens) to structures that already exist, instead of adding new
 structures.

@@ -136,6 +136,21 @@ Added is_prime to primes.py, created unit tests, ran them, and committed both fi
 The host draws all of this from the calls it mediates. The agents do nothing
 for it, so a plugin you add shows up the same way.
 
+## The dashboard
+
+Add `--dashboard 127.0.0.1:8830` and a dashboard agent watches the others in a
+browser: a card per agent (running, idle or in alert), a graph of who asks whom,
+alerts for an agent that is stuck or failing, and a live feed.
+
+```bash
+target/release/agentwos-host --harness examples/cli-harness/manifest.json --dashboard 127.0.0.1:8830
+```
+
+The host prints a link with a one-time token; open it. The dashboard keeps
+running after a `--message` answer until Ctrl-C, and works with `--serve-http`
+too. It is an agent that can only read the kernel's record, so it needs no
+change to the agents it watches. Design: [../../design/dashboard.md](../../design/dashboard.md).
+
 ## The agents
 
 | Plugin | Grants | Programs | Offered when the project has | What it does |
@@ -388,11 +403,12 @@ What `kit` gives a plugin:
 - `router/`: the router agent (`agent-module` world).
 - `Cargo.toml`: one cargo workspace for all of the above.
 - `manifest.json`: what to load and what each plugin is granted.
-- `build.sh`: builds the LLM client, the guests and the host.
+- `build.sh`: builds the components the host embeds (MCP, A2A and dashboard), the LLM client, the guests and the host.
 - `smoke.sh`: 32 checks that call plugins directly, so they need no model.
+- `dashboard-smoke.sh`: starts the harness with a dashboard on a free port and reads its API: token and `Host` checks, running state, failures, who asked whom. No model.
 - Host side, in `host/src/`: `harness.rs` (manifest, plugin pool, calls
   between agents), `workspace.rs` (the folder and the programs), `activity.rs`
-  (what is shown), `prompt.rs` (the line editor and the queue).
+  (what is shown), `ledger.rs` (what is kept for the dashboard), `dashboard.rs` (serving it), `prompt.rs` (the line editor and the queue).
 
 ## Limits
 
