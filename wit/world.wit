@@ -238,3 +238,81 @@ world mcp-server-module {
     import exposed;
     export mcp-server;
 }
+
+/// A read-only window on what the kernel mediates. The kernel writes one event
+/// for every call between agents, every model call, file and program, whether
+/// or not anyone is looking; a component granted this can only read them. It
+/// sees what happened and how long it took, never the agents' memory.
+interface observe {
+    record event {
+        /// Counts up from 1 and never repeats, so a reader asks for "after N".
+        seq: u64,
+        /// Milliseconds since the kernel started.
+        at-ms: u64,
+        /// The agent the event is about.
+        agent: string,
+        /// Who asked it, for `start` and `end`; the agent itself otherwise.
+        caller: string,
+        /// `start`, `end`, `think`, `file` or `program`.
+        kind: string,
+        /// A short line: the input, the model, the path or the command.
+        detail: string,
+        /// How long it took, for `end`, `think` and `program`; 0 otherwise.
+        ms: u64,
+        ok: bool,
+    }
+
+    record agent-stat {
+        name: string,
+        /// How many calls to it are running right now.
+        busy: u32,
+        calls: u32,
+        /// Failures: calls that returned an error, and model calls, files
+        /// and programs that failed while the agent worked.
+        errors: u32,
+        thoughts: u32,
+        files: u32,
+        programs: u32,
+        /// Time spent answering, summed over finished calls.
+        total-ms: u64,
+        /// When it last went from idle to busy; 0 while idle.
+        busy-since-ms: u64,
+        last-ms: u64,
+        last: string,
+    }
+
+    /// One agent asking another: how many times, and how many are running now.
+    /// `caller` is an agent, `router` for the agent that takes requests, `you`
+    /// for the person at the prompt or `outside` for a caller on the network.
+    record edge {
+        caller: string,
+        agent: string,
+        calls: u32,
+        busy: u32,
+    }
+
+    /// Milliseconds since the kernel started.
+    now: func() -> u64;
+    agents: func() -> list<agent-stat>;
+    /// Every pair seen so far. Unlike events, these are never trimmed.
+    edges: func() -> list<edge>;
+    /// Events with `seq` greater than `after`, oldest first, at most `limit`.
+    /// The kernel keeps the latest few thousand.
+    events: func(after: u64, limit: u32) -> list<event>;
+}
+
+/// What a dashboard agent offers the kernel to show to people.
+interface dashboard {
+    /// JSON for the page: the clock, every agent with its state and alerts,
+    /// the totals, and the events after `after`.
+    snapshot: func(after: u64) -> string;
+    /// The page itself, one HTML document that polls `snapshot`.
+    page: func() -> string;
+    /// Plain text for a terminal: all agents, or the one named.
+    report: func(agent: option<string>) -> string;
+}
+
+world dashboard-module {
+    import observe;
+    export dashboard;
+}

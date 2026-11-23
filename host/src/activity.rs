@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::ledger::Ledger;
 use crate::runtime::{error_text, CallError};
 
 const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -101,6 +102,11 @@ pub struct Activity {
     shared: Option<Arc<Shared>>,
     depth: usize,
     branch: String,
+    /// What the kernel keeps of everything done here, for a dashboard. It
+    /// records also when nothing is drawn.
+    ledger: Option<Ledger>,
+    /// The agent whose work this is, as the ledger names it.
+    who: String,
 }
 
 fn elapsed(time: Duration) -> String {
@@ -277,10 +283,11 @@ impl Shared {
 impl Activity {
     /// Shown on a terminal, where parallel agents are a board; `trace` shows
     /// it anywhere, as lines only.
-    pub fn new(trace: bool) -> Self {
+    pub fn new(trace: bool, ledger: Option<Ledger>) -> Self {
         let terminal = std::io::stderr().is_terminal();
+        let who = "router".to_string();
         if !terminal && !trace {
-            return Self { shared: None, depth: 0, branch: String::new() };
+            return Self { shared: None, depth: 0, branch: String::new(), ledger, who };
         }
         let zero = || AtomicUsize::new(0);
         let shared = Arc::new(Shared {
@@ -304,7 +311,7 @@ impl Activity {
                 }
             });
         }
-        Self { shared: Some(shared), depth: 0, branch: String::new() }
+        Self { shared: Some(shared), depth: 0, branch: String::new(), ledger, who }
     }
 
     /// Whether there is a screen to draw a prompt on.
@@ -340,6 +347,31 @@ impl Activity {
     /// One level further in: where the things an agent does are shown.
     pub fn deeper(&self) -> Self {
         Self { depth: self.depth + 1, ..self.clone() }
+    }
+
+    /// The same place, but what happens here is the work of `who`.
+    pub fn as_agent(&self, who: &str) -> Self {
+        Self { who: who.to_string(), ..self.clone() }
+    }
+
+    fn note(&self, agent: &str, caller: &str, kind: &'static str, detail: &str, took: Duration, ok: bool) {
+        if let Some(ledger) = &self.ledger {
+            ledger.record(agent, caller, kind, detail, took, ok);
+        }
+    }
+
+    /// Records a piece of work in the ledger only, for work that is not drawn:
+    /// a request the router answers.
+    pub fn tracked<T, E: std::fmt::Display>(&self, name: &str, input: &str, work: impl FnOnce() -> Result<T, E>) -> Result<T, E> {
+        self.note(name, "you", "start", input, Duration::ZERO, true);
+        let began = Instant::now();
+        let result = work();
+        let detail = match &result {
+            Ok(_) => "answered".to_string(),
+            Err(e) => e.to_string(),
+        };
+        self.note(name, "you", "end", &detail, began.elapsed(), result.is_ok());
+        result
     }
 
     /// One of several agents working at the same time.
@@ -387,6 +419,18 @@ impl Activity {
     /// An agent is asked something. What it does until it answers is shown
     /// by `self.deeper()`.
     pub fn agent<T>(&self, name: &str, input: &str, work: impl FnOnce() -> Result<T, CallError>) -> Result<T, CallError> {
+        self.note(name, &self.who, "start", input, Duration::ZERO, true);
+        let began = Instant::now();
+        let result = self.agent_drawn(name, input, work);
+        let detail = match &result {
+            Ok(_) => "answered".to_string(),
+            Err(e) => error_text(e).to_string(),
+        };
+        self.note(name, &self.who, "end", &detail, began.elapsed(), result.is_ok());
+        result
+    }
+
+    fn agent_drawn<T>(&self, name: &str, input: &str, work: impl FnOnce() -> Result<T, CallError>) -> Result<T, CallError> {
         let Some(s) = &self.shared else { return work() };
         s.agents.fetch_add(1, Ordering::Relaxed);
         // The agent a row is about is the row itself, not something on it.
@@ -444,6 +488,7 @@ impl Activity {
 
     /// Something that happens at once: a file read or written.
     pub fn did<T>(&self, what: &str, result: &Result<T, CallError>, detail: impl Fn(&T) -> String) {
+        self.note(&self.who, &self.who, "file", what, Duration::ZERO, result.is_ok());
         match result {
             Ok(value) => {
                 self.on_row(|row| row.files += 1);
@@ -495,7 +540,10 @@ impl Activity {
         }
         self.on_row(|row| row.thoughts += 1);
         let name = model.rsplit('/').next().unwrap_or(model);
-        self.wait(&format!("thinking {}", self.paint(DIM, name)), work, |_| (true, String::new()))
+        let began = Instant::now();
+        let result = self.wait(&format!("thinking {}", self.paint(DIM, name)), work, |_| (true, String::new()));
+        self.note(&self.who, &self.who, "think", model, began.elapsed(), result.is_ok());
+        result
     }
 
     /// A program runs in the workspace. `parts` gives its exit code and output.
@@ -510,10 +558,13 @@ impl Activity {
         }
         self.on_row(|row| row.programs += 1);
         let what = format!("$ {}", one_line(command, 80));
+        let began = Instant::now();
         let result = self.wait(&what, work, |run| match parts(run).0 {
             0 => (true, String::new()),
             status => (false, self.paint(YELLOW, &format!("exit {status}"))),
         });
+        let ok = result.as_ref().is_ok_and(|run| parts(run).0 == 0);
+        self.note(&self.who, &self.who, "program", command, began.elapsed(), ok);
         if let Ok(run) = &result {
             let (_, stdout, stderr) = parts(run);
             let output = if stdout.trim().is_empty() { stderr } else { stdout };

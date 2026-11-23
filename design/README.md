@@ -114,6 +114,12 @@ systems or in cloud platforms, given here as an aid, not as a definition.
 | **Plane** | A scope of sharing: everything that works for one person, team or project, across realms | User session | Tenant |
 | **Lesson** | Something one agent learned, published to its plane with author, evidence and expiry | (none) | (none) |
 | **Hive memory** | What a plane knows: its lessons, served by a memory agent | Shared memory | Shared state store |
+| **Clock** | The kernel's timers for one agent, with limits the agent cannot widen. A wakeup is a message | `alarm`, `cron` | CronJob |
+| **Mailbox** | An agent's queue, held by the kernel, with a policy (queue, steer, reject, coalesce) | Message queue | Queue |
+| **Journal** | Every call an agent made and its answer, so a crashed agent can be replayed to where it stopped | Write-ahead log | Durable execution |
+| **Principal** | The person or system a piece of work is for. Travels with every intent | Effective user | On-behalf-of identity |
+| **Surface** | Where a request came from: a direct message, a channel, a schedule, an event | Terminal, session | Channel, ingress |
+| **Decider** | The system agent that answers a policy's `ask` and the Journal's "was it done?" | (none) | Approval webhook |
 
 Not everything in a classic operating system has a counterpart, and that is
 intended. There is no scheduler of processor time, no virtual memory and no
@@ -135,6 +141,8 @@ exists, and stories that show it working.
 | Sending each piece of work to the right expert, with decision models (plan) | [Router](router.md) | [Build](build/router.md) | [Stories](stories/router.md) |
 | Calling MCP servers and being called by MCP clients, always through a guard | [MCP](mcp.md) | [Build](build/mcp.md) | [Stories](stories/mcp.md) |
 | Calling remote agents and being called by them, as a sidecar like MCP | [A2A](a2a.md) | [Build](build/a2a.md) | [Stories](stories/a2a.md) |
+| An agent that watches the other agents: states, alerts, who asks whom (built) | [Dashboard](dashboard.md) | [Build](build/dashboard.md) | [Stories](stories/dashboard.md) |
+| Agents that wake on their own, queue messages, survive crashes and act for people: Clock, Mailbox, Journal, principal and surface, decider | [Persistence](persistence.md) | [Build](build/persistence.md) | [Stories](stories/persistence.md) |
 
 Supporting documents:
 
