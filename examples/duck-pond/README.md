@@ -4,7 +4,10 @@
 · **New: [Duck soccer](soccer/README.md)**, two against two: https://agentic-duck-pond.asst.workers.dev/soccer.html
 
 Four [MicroDuck](https://github.com/pollen-robotics/microduck) robots share an
-apartment. Each duck's **brain is an AgentWOS agent**; its **body follows
+apartment, in two versions: turn-based on the native host with any model and a
+replay dashboard (most of this page), and live in the browser with Needle
+([In the browser](#in-the-browser)). The same ducks also play
+[football](soccer/README.md). Each duck's **brain is an AgentWOS agent**; its **body follows
 MicroDuck's logic**. An OS control sits between the two.
 
 ```
@@ -125,13 +128,31 @@ The page reloads the log while a run is going.
 
 ## Files
 
+Turn-based, on the native host:
+
 - `scenario/src/lib.rs`: the `scenario` interface: prompts, parsing, the round
   log.
-- `scenario/src/body.rs`: the room and the bodies.
-- `controls/duck-safety/`: the control.
+- `scenario/src/body.rs`: the room and the bodies. The browser stages use it too.
+- `controls/duck-safety/`: the control. It reads both the scenario's decisions
+  and the browser stage's tool calls.
 - `dashboard/index.html`: the replay.
 - `manifest.json`: scenario, control, model, rounds, log path.
+- `build.sh`: builds the components the host needs.
 - `runs/`: output, git-ignored.
+
+Live, in the browser:
+
+- `stage/src/lib.rs`: the pond as a `stage`: tools for the brains, urges,
+  words and what they mean.
+- `soccer/`: the match: its stage and [its README](soccer/README.md).
+- `controls/referee/`: the match's control.
+- `web/src/`: the pages (`index.html`, `soccer.html`), the duck drawing
+  (`duck-art.js`), the page side of the kernel (`brain-link.js`) and the kernel
+  workers (`kernel-worker.js`, `worker.js`, `soccer-worker.js`).
+- `web/test/`: `smoke.mjs` (the pond) and `soccer.mjs` (the match), both with
+  the real model in Node.
+- `build-web.sh`, `deploy.sh`, `worker/edge.js`: build the site, and publish it
+  to Cloudflare with the Worker that serves the model.
 
 ## Limits
 
@@ -145,6 +166,11 @@ The page reloads the log while a run is going.
 - Behaviour depends on the model. A small model repeats itself: in test runs
   with `llama-3.1-8b`, some ducks mostly quacked or looked around.
 - The chance of getting up after a fall is a fixed number, not physics.
+- In the browser, Needle turns one sentence into one call; it does not reason
+  about what a duck wants. The urges are rules in the stage, in the spirit of
+  `autod`'s energy model.
+- In the browser, a quack is the body's own reflex: Needle could not pick a
+  `quack` tool reliably, so it is not offered one.
 
 ## In the browser
 

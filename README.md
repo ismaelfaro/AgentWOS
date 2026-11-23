@@ -16,6 +16,13 @@ browser with [Needle](https://cactuscompute.com/needle), a 35 MB tool-calling
 model. Add up to 48 sections to the orchestra, one card at a time. It is one
 example of what AgentWOS runs, not the whole project.
 
+**Robots in the browser:** [**Duck pond**](https://agentic-duck-pond.asst.workers.dev)
+and [**Duck soccer**](https://agentic-duck-pond.asst.workers.dev/soccer.html).
+[MicroDuck](https://github.com/pollen-robotics/microduck) robots whose brains are
+AgentWOS agents running Needle in the tab. In the pond they explore an apartment
+and learn words for places from each other; on the pitch they play two against
+two, with a referee control checking every call.
+
 **Coding harness:** a command-line coding assistant made of small WASM agents.
 A lead agent edits your project and asks expert agents (git, Python, Rust,
 JavaScript, search, review) for the rest. Each one holds only the grants its
@@ -49,7 +56,8 @@ leave policy in prompts. AgentWOS takes the operating-system view instead:
 | Example | Runs on | Style |
 |---|---|---|
 | [Mars colony](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mars-colony) | Native host | Turn-based scenario |
-| [Duck pond](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-pond) | Native host | Robots: agents as the brains of MicroDuck bodies, with a safety control |
+| [Duck pond](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-pond) | Native host and browser kernel | Robots: agents as the brains of MicroDuck bodies, with a safety control |
+| [Duck soccer](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-pond/soccer) | Browser kernel | Robots: two teams of two, a referee control, live coaching |
 | [Tab Jam](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-jam) | Browser kernel | Interactive, tool calls |
 | [CLI harness](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/cli-harness) | Native host | A coding harness of small expert agents |
 | [Tab Swarm](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-swarm) | Node and browsers together | Distributed: one local agent and one per browser tab, exchanging signed intents |
@@ -100,6 +108,20 @@ rebuild shows up on reload.
   serves every section, so adding a section does not add a WASM memory. Pads and
   sound choices work the same way: a touch becomes a tool call, checked like any
   other.
+- **[Duck pond](examples/duck-pond/)**: four MicroDuck robots in an apartment.
+  Each duck's brain is an agent; its body follows MicroDuck's rules (gait, ToF
+  reflex, falls, get-up), and a safety control checks every decision. Two
+  versions: turn-based on the native host with any OpenAI-compatible model and
+  a replay dashboard, and live in the browser with Needle, where the ducks say
+  sounds as they walk and learn from each other what they mean.
+- **[Duck soccer](examples/duck-pond/soccer/)**: the same ducks, two against two,
+  in the browser. A brain picks a role (attack, defend, pass, stop) from a
+  sentence, the stage turns it into footwork, and a referee control blocks
+  orders to a fallen duck, holds attacks until the whistle and allows one
+  attacker per team. Each duck voices its own urges; you can coach any of them.
+- **[Robot hive](examples/robot-hive/)**: six rule-based robots that share one
+  map and decide on their own. Plain Rust, no model and no WASM: a baseline for
+  shared knowledge with independent logic.
 - **[Mars colony](examples/mars-colony/)**: a turn-based simulation. Five
   colonists decide each day what to do, a control filters their actions, and a
   dashboard replays the run.
@@ -217,7 +239,8 @@ WebAssembly agents, WASM agents, WASI, Component Model, Wasmtime, agent
 operating system, multi-agent orchestration, tool calling, sandboxed agents,
 agent isolation, LLM controls and guardrails, browser AI, in-browser LLM,
 Needle, jco, Rust agents, agent observability, AI coding assistant, coding
-agent harness, self-improving agents.
+agent harness, self-improving agents, robot agents, MicroDuck, multi-robot
+simulation, robot soccer, emergent communication, language games.
 
 ## License
 
