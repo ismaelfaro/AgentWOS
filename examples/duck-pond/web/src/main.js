@@ -1,5 +1,7 @@
-// The duck pond page: the bodies are drawn here from the frames the kernel
-// sends back; the brains and the bodies run in worker.js.
+// The duck pond page. The bodies tick in worker.js and the brains think in
+// brain.js: two workers, so the animation never waits for the model. This page
+// passes a cue from the brains to the bodies, and draws at the display's rate,
+// easing from one body frame to the next.
 const $ = (id) => document.getElementById(id);
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const canvas = $("room"), ctx = canvas.getContext("2d");
@@ -9,11 +11,16 @@ let scale = 1, W = 4, H = 3;
 let selected = -1;
 const headings = [];
 
-let setup = null, frame = null, tick = 0, ready = false;
+let setup = null, frame = null;
 let cuePending = false, cueId = 0;
-const queue = [];          // cues waiting for the brain: { text, why }
+const queue = [];          // cues waiting for the brain: { text, why, urge, at }
 const lastBrain = {};     // duck name -> last thing its brain did, for the cards
-const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+let thinking = new Set(); // ducks whose brain is working on a cue right now
+const body = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+const brain = new Worker(new URL("./brain.js", import.meta.url), { type: "module" });
+let briefs = [], bodyReady = false, brainReady = false;
+// Read by the browser test: how many frames came and how long the page ever went undrawn.
+window.__pond = { frames: 0, draws: 0, maxGapMs: 0 };
 
   const SCHEMES = [
     { shell: "#8fd6e3", beak: "#f2682a", eye: "#f5a623", foot: "#f2682a", sole: "#f5b73a", accent: "#3fb6cc" },
@@ -92,12 +99,17 @@ const worker = new Worker(new URL("./worker.js", import.meta.url), { type: "modu
     g.restore();
   }
   // A small canvas with one duck on it, for the cards and the header.
+  function paintPortrait(cv, c, pose) {
+    const g = cv.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, cv.width, cv.height);
+    g.translate(cv.width * 0.38, cv.height * 0.95);
+    drawModel(g, c, (cv.height * 0.88) / 92, pose || {});
+  }
   function portrait(c, pose, px) {
     const cv = document.createElement("canvas"), dpr = window.devicePixelRatio || 1;
     cv.width = cv.height = px * dpr; cv.style.width = cv.style.height = px + "px";
-    const g = cv.getContext("2d");
-    g.translate(cv.width * 0.38, cv.height * 0.95);
-    drawModel(g, c, (cv.height * 0.88) / 92, pose || {});
+    paintPortrait(cv, c, pose);
     return cv;
   }
 
@@ -210,29 +222,83 @@ function status(text, cls = "") {
   el.className = "pill " + cls;
 }
 
+// The thin bar under the header: how much of the model has loaded.
+function loading(fraction) {
+  const bar = $("loadbar");
+  bar.hidden = fraction >= 1;
+  $("loadfill").style.width = Math.round(fraction * 100) + "%";
+  bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+}
+
+// The line under the text box: what will happen to what you type, right now.
+function hint() {
+  const el = $("hint");
+  const waiting = queue.filter((q) => !q.urge).length;
+  if (!brainReady) {
+    el.textContent = "The brains are still loading. The ducks move on their own meanwhile; a line you send waits until they are ready.";
+    el.className = "hint wait";
+  } else if (waiting) {
+    el.textContent = `Your line is waiting for a brain (${waiting} in line).`;
+    el.className = "hint wait";
+  } else {
+    el.textContent = 'Name a duck (Pip, Momo, Nilo, Lila), its colour, or "everyone".';
+    el.className = "hint";
+  }
+}
+
 function send(text, why = "") {
   if (!text) return;
-  queue.push({ text, why });
+  queue.push({ text, why, urge: why !== "you", at: performance.now() });
   pump();
+  hint();
+}
+
+// Which ducks a cue is for, by name, colour or "everyone": the ones that will be thinking.
+function ducksNamed(text) {
+  const t = text.toLowerCase(), out = new Set();
+  const everyone = /\b(everyone|all|ducks)\b/.test(t);
+  for (const a of setup.agents) if (everyone || t.includes(a.agent.toLowerCase()) || (a.colour && t.includes(a.colour))) out.add(a.agent);
+  return out;
 }
 
 function pump() {
-  if (cuePending || !queue.length || !ready) return;
+  if (cuePending || !queue.length || !bodyReady || !brainReady) return;
+  // An urge that waited too long behind a busy brain is stale: the duck has moved on.
+  while (queue.length && queue[0].urge && performance.now() - queue[0].at > 12000) queue.shift();
+  if (!queue.length) return;
   const next = queue.shift();
   cuePending = true;
-  worker.postMessage({ type: "cue", id: ++cueId, text: next.text });
-  next.why && logLine(`${next.text}`, next.why);
+  thinking = ducksNamed(next.text);
+  brain.postMessage({ type: "think", id: ++cueId, text: next.text, briefs, agents: setup.agents.map((a) => a.agent) });
+  next.why && logLine(`${next.text}`, next.why === "you" ? "you asked" : next.why, next.why === "you" ? "you" : "");
+  updateCards();
+  hint();
 }
 
-function logLine(head, body) {
+// The decisions log: newest first, who did what, and why, on its own line.
+let logged = 0, logSeen = 0;
+function logLine(head, body, cls = "") {
   const log = $("log");
   log.querySelector(".empty")?.remove();
   const li = document.createElement("li");
+  if (cls) li.className = cls;
+  const when = document.createElement("time");
+  const t = new Date();
+  when.textContent = `${String(t.getMinutes()).padStart(2, "0")}:${String(t.getSeconds()).padStart(2, "0")}`;
   const b = document.createElement("strong"); b.textContent = head;
-  const s = document.createElement("small"); s.textContent = body;
-  li.append(b, s);
+  const small = document.createElement("small"); small.textContent = body;
+  li.append(when, b, small);
   log.prepend(li);
-  while (log.children.length > 24) log.lastElementChild.remove();
+  while (log.children.length > 40) log.lastElementChild.remove();
+  logged++;
+  paintLogCount();
+}
+// Unread decisions, shown on the tab while you look at the ducks.
+function paintLogCount() {
+  const c = $("logCount"), unread = $("panel-log").hidden ? logged - logSeen : 0;
+  if ($("panel-log").hidden === false) logSeen = logged;
+  c.textContent = unread > 99 ? "99+" : String(unread);
+  c.hidden = unread <= 0;
 }
 
 function describeCue(result) {
@@ -254,35 +320,82 @@ function describeCue(result) {
   }
 }
 
-worker.onmessage = ({ data: m }) => {
-  if (m.type === "progress") {
-    const pct = m.total ? ` ${Math.round((m.loaded / m.total) * 100)}%` : "";
-    status(`loading ${m.label}${pct}`);
-  } else if (m.type === "ready") {
+body.onmessage = ({ data: m }) => {
+  if (m.type === "ready") {
     setup = m.setup;
+    briefs = m.briefs;
     data.room = setup.room;
-    ready = true;
+    bodyReady = true;
     $("main").hidden = false;
-    status("live", "live");
+    // The pond is alive before the model has finished loading.
+    if (!brainReady) status("the brains are waking up");
     suggestions();
     resize();
     loop();
   } else if (m.type === "frame") {
-    frame = m.frame;
-    onFrame();
-  } else if (m.type === "cue-result") {
+    renderInFlight = false;
+    onFrame(m.frame);
+  } else if (m.type === "delivered") {
     cuePending = false;
-    describeCue(m.result);
-    for (const t of m.result.turns) if (!lastBrain[t.agent]) lastBrain[t.agent] = { text: "no answer", verdict: "" };
+    thinking = new Set();
+    describeCue({ turns: m.turns });
+    hint();
     updateCards();
     pump();
   } else if (m.type === "error") {
     status("error: " + m.message, "bad");
-    cuePending = false;
+    cuePending = false; renderInFlight = false; thinking = new Set();
   }
 };
 
-worker.postMessage({ type: "init" });
+brain.onmessage = ({ data: m }) => {
+  if (m.type === "progress") {
+    if (brainReady) return;
+    const pct = m.total ? ` ${Math.round((m.loaded / m.total) * 100)}%` : "";
+    status(`loading the brains: ${m.label}${pct}`);
+    // The model is most of the wait: show its share on the bar.
+    if (m.label === "model" && m.total) loading(m.loaded / m.total);
+  } else if (m.type === "ready") {
+    brainReady = true;
+    status("live", "live");
+    loading(1);
+    pump();
+    hint();
+  } else if (m.type === "thought") {
+    // What the brains decided goes to the bodies, which check and apply it.
+    body.postMessage({ type: "deliver", id: m.id, turns: m.turns });
+  } else if (m.type === "error") {
+    status("error: " + m.message, "bad");
+    cuePending = false; thinking = new Set();
+  }
+};
+
+body.postMessage({ type: "init" });
+brain.postMessage({ type: "init" });
+
+// ---------- tabs ----------
+const TABS = ["ducks", "log"];
+function selectTab(name, focus) {
+  if (!TABS.includes(name)) name = "ducks";
+  for (const n of TABS) {
+    const on = n === name;
+    $("tab-" + n).setAttribute("aria-selected", String(on)); $("tab-" + n).tabIndex = on ? 0 : -1;
+    $("panel-" + n).hidden = !on;
+  }
+  if (focus) $("tab-" + name).focus();
+  try { localStorage.setItem("duck-pond-web-tab", name); } catch {}
+  paintLogCount();
+}
+for (const n of TABS) {
+  $("tab-" + n).addEventListener("click", () => selectTab(n));
+  $("tab-" + n).addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    selectTab(TABS[(TABS.indexOf(n) + 1) % TABS.length], true);
+  });
+}
+{ let saved = "ducks"; try { saved = localStorage.getItem("duck-pond-web-tab") || "ducks"; } catch {} selectTab(saved); }
+hint();
 
 // ---------- the page ----------
 function suggestions() {
@@ -302,27 +415,56 @@ $("cueForm").addEventListener("submit", (e) => {
   input.value = "";
 });
 
-// Idle ducks ask their brains for something to do; the brains answer through the safety control.
-let frameTick = 0;
-let lastRender = 0;
+// The bodies tick ten times a second on a timer, whatever the brains are doing and
+// whatever the display's refresh is. The page draws every display frame in between,
+// easing from the last body frame to the new one. Animation clocks (legs, beaks,
+// rings) use the wall clock, so they run even when no frame arrives.
+const TICK_MS = 100;
+let renderInFlight = false, frameTick = 0, lastDraw = 0;
+let prevFrame = null, curFrame = null, curAt = 0, interval = TICK_MS;
 function loop() {
-  const now = performance.now();
-  if (!cuePending && now - lastRender > 90) {
-    lastRender = now;
-    worker.postMessage({ type: "render", tick: frameTick++ });
-  }
-  requestAnimationFrame(loop);
+  // A browser throttles a hidden tab's timers and animation frames by itself, so the pond rests there.
+  setInterval(() => {
+    if (renderInFlight) return;
+    renderInFlight = true;
+    body.postMessage({ type: "render", tick: frameTick++ });
+  }, TICK_MS);
+  const paint = (now) => {
+    if (lastDraw) window.__pond.maxGapMs = Math.max(window.__pond.maxGapMs, now - lastDraw);
+    lastDraw = now; window.__pond.draws++;
+    draw(now);
+    requestAnimationFrame(paint);
+  };
+  requestAnimationFrame(paint);
 }
 
-function onFrame() {
-  for (const u of frame.urges || []) queueUrge(u);
-  for (const e of frame.events || []) feedEvent(e);
-  draw();
+function onFrame(f) {
+  const now = performance.now();
+  if (curFrame) interval = Math.min(400, Math.max(50, now - curAt));
+  prevFrame = curFrame; curFrame = f; curAt = now; frame = f;
+  window.__pond.frames++;
+  // Idle ducks ask their brains for something to do; the brains answer through the safety control.
+  for (const u of f.urges || []) queueUrge(u);
+  for (const e of f.events || []) feedEvent(e);
   updateCards();
+  // Also draw here: where a browser starves animation frames, the pond still moves at the body's own rate.
+  draw(now);
+}
+
+const mix = (a, b, k) => a + (b - a) * k;
+const mixAngle = (a, b, k) => a + ((((b - a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) - Math.PI) * k;
+// Where duck `i` is right now, between the last two frames.
+function placed(i, now) {
+  const b = curFrame.ducks[i];
+  if (!prevFrame) return { x: b.x, y: b.y, heading: b.heading };
+  const a = prevFrame.ducks[i], k = Math.min(1, (now - curAt) / interval);
+  return { x: mix(a.x, b.x, k), y: mix(a.y, b.y, k), heading: mixAngle(a.heading, b.heading, k) };
 }
 
 const urgeAsked = new Set();
 function queueUrge(u) {
+  // Before the brains are loaded nobody can answer; the duck will ask again later.
+  if (!brainReady) return;
   const name = setup.agents[u.agent].agent;
   // One pending urge per duck: a duck that is still waiting does not ask again.
   if (urgeAsked.has(name)) return;
@@ -338,63 +480,98 @@ function feedEvent(e) {
   if (e.text.startsWith("quacks")) logLine(`${e.agent} quacks`, e.text.replace(/^quacks: /, "because "));
 }
 
-function draw() {
-  if (!frame) return;
-  const f = frame.t;
+function draw(now = performance.now()) {
+  if (!curFrame) return;
+  const f = now / 1000;
   drawRoom();
-  const ball = frame.ball;
+  const ball = prevFrame ? [mix(prevFrame.ball[0], curFrame.ball[0], Math.min(1, (now - curAt) / interval)), mix(prevFrame.ball[1], curFrame.ball[1], Math.min(1, (now - curAt) / interval))] : curFrame.ball;
   ctx.save(); ctx.shadowColor = "rgba(0,0,0,.3)"; ctx.shadowBlur = scale * 0.03;
   ctx.fillStyle = "#f6883a"; ctx.beginPath(); ctx.arc(X(ball[0]), Y(ball[1]), scale * 0.05, 0, 7); ctx.fill(); ctx.restore();
-  const sprites = frame.ducks.map((d, i) => ({ i, d, color: COLORS[i % COLORS.length], y: d.y }));
-  sprites.sort((a, b) => b.y - a.y);
+  const sprites = curFrame.ducks.map((d, i) => ({ i, d, p: placed(i, now), color: COLORS[i % COLORS.length] }));
+  sprites.sort((a, b) => b.p.y - a.p.y);
   for (const sp of sprites) {
     const d = sp.d;
-    headings[sp.i] = d.heading;
-    drawDuck(sp.i, d.x, d.y, d.heading, sp.color, {
+    headings[sp.i] = sp.p.heading;
+    drawDuck(sp.i, sp.p.x, sp.p.y, sp.p.heading, sp.color, {
       policy: d.policy, state: d.action, quack: d.action === "quack", scheme: SCHEMES[sp.i], walking: d.policy === "walk",
     }, f, sp.i === selected);
   }
   ctx.font = `600 ${scale * 0.062}px ui-rounded, system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const sp of sprites) {
-    const w = ctx.measureText(sp.d.agent).width + scale * 0.07, hgt = scale * 0.095, cx = X(sp.d.x), cy = Y(sp.d.y) + scale * 0.13;
+    const w = ctx.measureText(sp.d.agent).width + scale * 0.07, hgt = scale * 0.095, cx = X(sp.p.x), cy = Y(sp.p.y) + scale * 0.13;
     ctx.fillStyle = css("--card"); ctx.globalAlpha = 0.88; rr(cx - w / 2, cy - hgt / 2, w, hgt, hgt / 2); ctx.fill(); ctx.globalAlpha = 1;
     ctx.strokeStyle = sp.color; ctx.lineWidth = scale * 0.008; ctx.stroke();
     ctx.fillStyle = css("--ink"); ctx.fillText(sp.d.agent, cx, cy + scale * 0.004);
   }
+  // A duck whose brain is working shows it: three dots in a bubble over its head.
+  for (const sp of sprites) {
+    if (!thinking.has(sp.d.agent)) continue;
+    const dots = reduced ? 3 : 1 + (Math.floor(now / 300) % 3), label = ".".repeat(dots).padEnd(3, "\u00a0");
+    const bx = X(sp.p.x) + scale * 0.14, by = Y(sp.p.y) - scale * 0.5, w = scale * 0.2, hh = scale * 0.1;
+    ctx.fillStyle = css("--card"); ctx.strokeStyle = css("--accent"); ctx.lineWidth = scale * 0.008;
+    rr(bx - w / 2, by - hh / 2, w, hh, hh / 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = css("--ink"); ctx.font = `700 ${scale * 0.09}px ui-rounded, system-ui`;
+    ctx.fillText(label, bx, by - scale * 0.01);
+  }
   ctx.textAlign = "start"; ctx.textBaseline = "alphabetic";
+}
+
+// The cards are built once and updated in place. Rebuilding them (as the first version
+// did, ten times a second) invalidated styles and layout for the whole document and
+// repainted half a million pixels each time, which a browser profile shows plainly.
+const cards = [];
+const set = (node, text) => { if (node._t !== text) { node._t = text; node.textContent = text; } };
+const setClass = (node, cls) => { if (node._c !== cls) { node._c = cls; node.className = cls; } };
+
+function buildCards() {
+  const box = $("ducks");
+  box.textContent = "";
+  frame.ducks.forEach((d, i) => {
+    const el = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+    const card = el("article", "card duck");
+    card.style.setProperty("--c", COLORS[i % COLORS.length]);
+    const head = el("header");
+    const av = el("div", "avatar");
+    const cv = portrait(SCHEMES[i % SCHEMES.length], {}, 64);
+    av.append(cv);
+    const who = el("div");
+    const h = el("h2"); h.textContent = d.agent;
+    const role = el("div", "role"); role.textContent = setup.agents[i].role;
+    who.append(h, role);
+    const chips = el("div", "chips");
+    const doing = el("span"), bodyChip = el("span");
+    chips.append(doing, bodyChip);
+    head.append(av, who, chips);
+    const thought = el("div", "thought");
+    const energy = el("div", "energy"), bar = el("div", "bar"), fill = el("i"), pct = document.createElement("span");
+    bar.append(fill); energy.append("energy", bar, pct);
+    card.append(head, thought, energy);
+    card.addEventListener("click", () => { selected = selected === i ? -1 : i; updateCards(); draw(); });
+    box.append(card);
+    cards.push({ card, cv, doing, bodyChip, thought, fill, pct, pose: "" });
+  });
 }
 
 function updateCards() {
   if (!frame) return;
-  const box = $("ducks");
-  box.textContent = "";
+  if (!cards.length) buildCards();
   frame.ducks.forEach((d, i) => {
-    const card = document.createElement("article");
-    card.className = "card duck" + (i === selected ? " sel" : "");
-    card.style.setProperty("--c", COLORS[i % COLORS.length]);
-    const head = document.createElement("header");
-    const av = document.createElement("div"); av.className = "avatar";
-    av.append(portrait(SCHEMES[i % SCHEMES.length], { sit: d.policy === "sit", beak: d.action === "quack" ? 0.18 : 0 }, 64));
-    const who = document.createElement("div");
-    const h = document.createElement("h2"); h.textContent = d.agent;
-    const role = document.createElement("div"); role.className = "role"; role.textContent = setup.agents[i].role;
-    who.append(h, role);
-    const chips = document.createElement("div"); chips.className = "chips";
-    const doing = document.createElement("span"); doing.className = "chip"; doing.textContent = d.action.replace("_", " ") + (d.place ? ` · ${d.place}` : "");
-    const body = document.createElement("span"); body.className = "chip body " + d.policy; body.textContent = "body: " + d.policy;
-    chips.append(doing, body);
-    head.append(av, who, chips);
-    const brain = document.createElement("div"); brain.className = "thought";
+    const c = cards[i];
+    setClass(c.card, "card duck" + (i === selected ? " sel" : ""));
+    setClass(c.doing, "chip");
+    set(c.doing, d.action.replace("_", " ") + (d.place ? ` · ${d.place}` : ""));
+    setClass(c.bodyChip, "chip body " + d.policy);
+    set(c.bodyChip, "body: " + d.policy);
     const b = lastBrain[d.agent];
-    brain.textContent = b ? `${b.text}${b.verdict ? "  ·  " + b.verdict : ""}` : "";
-    const energy = document.createElement("div"); energy.className = "energy";
-    const bar = document.createElement("div"); bar.className = "bar";
-    const fill = document.createElement("i"); fill.style.width = Math.round(d.energy * 100) + "%";
-    fill.className = d.energy < 0.2 ? "low" : d.energy < 0.5 ? "mid" : "";
-    bar.append(fill); energy.append("energy", bar, Math.round(d.energy * 100) + "%");
-    card.append(head, brain, energy);
-    card.addEventListener("click", () => { selected = selected === i ? -1 : i; updateCards(); draw(); });
-    box.append(card);
+    set(c.thought, thinking.has(d.agent) ? "thinking…" : b ? `${b.text}${b.verdict ? "  ·  " + b.verdict : ""}` : "");
+    const e = Math.round(d.energy * 100);
+    const w = e + "%";
+    if (c.fill._w !== w) { c.fill._w = w; c.fill.style.width = w; }
+    setClass(c.fill, d.energy < 0.2 ? "low" : d.energy < 0.5 ? "mid" : "");
+    set(c.pct, w);
+    // The portrait changes only when the duck sits down or quacks, so repaint only then.
+    const pose = `${d.policy === "sit"}|${d.action === "quack"}`;
+    if (c.pose !== pose) { c.pose = pose; paintPortrait(c.cv, SCHEMES[i % SCHEMES.length], { sit: d.policy === "sit", beak: d.action === "quack" ? 0.18 : 0 }); }
   });
 }
 

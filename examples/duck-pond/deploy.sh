@@ -24,6 +24,8 @@ cat > "$out/_headers" <<'HEADERS'
 HEADERS
 
 cp "$here/worker/edge.js" "$out/edge.js"
+# Wrangler's own files and the Worker's code are not static assets of the page.
+printf '.wrangler\nedge.js\nwrangler.jsonc\n' > "$out/.assetsignore"
 cat > "$out/wrangler.jsonc" <<JSON
 {
   "name": "$name",
