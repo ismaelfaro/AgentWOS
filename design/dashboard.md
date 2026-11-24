@@ -19,6 +19,34 @@ agents ──calls──► kernel ──writes──► ledger ◄──reads�
                   (mediates)                (observe, read-only)
 ```
 
+## Two ways to run it
+
+**On its own.** `agentwos-host --dashboard 127.0.0.1:8830` starts only the
+dashboard. It finds whatever kernel is running, watches it, and when that
+kernel ends it waits for the next one and connects to it. It can be started
+before or after the kernel, and left running all day, the way a process
+monitor is.
+
+**Inside a kernel.** `--harness ... --dashboard ADDR` runs the same component in
+the same process, reading the ledger directly.
+
+How a kernel is found: every running harness serves its ledger, read-only, on a
+loopback port the system picks, and leaves a **note** with the port and a token
+in a folder only this user can open (`$TMPDIR/agentwos-<uid>/kernels/<pid>.json`,
+mode 600). The note goes when the kernel ends; a monitor deletes the note of a
+kernel that is gone. `--no-observe` keeps a kernel out of sight. `--kernel PID`
+makes a monitor watch one kernel instead of the newest.
+
+```
+kernel (harness)                         monitor (dashboard, its own process)
+  ledger ──► /observe/* on 127.0.0.1:<any>  ◄── reads, with the token from the note
+         └─► note: <run dir>/kernels/<pid>.json  ◄── finds it
+```
+
+The window has no route that writes: `GET` only. The dashboard component does
+not know which way it runs; the host gives it the same `observe` import either
+way, plus `source` to say what it watches.
+
 ## Who does what
 
 | Part | Job | Knows nothing about |

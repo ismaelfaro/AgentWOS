@@ -87,9 +87,11 @@ export OPENROUTER_API_KEY=sk-or-...        # or a local model, see the harness R
 ./target/release/agentwos-host --harness examples/cli-harness/manifest.json --project path/to/your/project
 ```
 
-Add `--dashboard 127.0.0.1:8830` to watch the agents in a browser: a dashboard
-agent reads the kernel's record of every call and shows who is running, who asks
-whom, and what is stuck or failing ([design](design/dashboard.md)).
+To watch the agents in a browser, start the dashboard on its own, before or after
+any harness: `./target/release/agentwos-host --dashboard 127.0.0.1:8830`. It finds
+the running kernel, reads its record of every call, and shows who is running, who
+asks whom, and what is stuck or failing; when that kernel ends, it waits for the
+next ([design](design/dashboard.md)).
 
 Requirements: Rust with the `wasm32-wasip2` target (`rustup target add wasm32-wasip2`),
 and Python 3 to serve the pages. `tools/serve.py` disables browser caching, so a

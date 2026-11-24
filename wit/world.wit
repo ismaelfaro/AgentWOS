@@ -291,6 +291,11 @@ interface observe {
         busy: u32,
     }
 
+    /// What is being watched, as JSON: `{"state": "connected", "kernel": {"id",
+    /// "pid", "name"}}`, or `{"state": "waiting"}` while no kernel is running.
+    /// A reader that sees `kernel.id` change starts again from event 0: a new
+    /// kernel counts from 1.
+    source: func() -> string;
     /// Milliseconds since the kernel started.
     now: func() -> u64;
     agents: func() -> list<agent-stat>;

@@ -199,6 +199,26 @@ fn host_is_loopback(host: &str) -> bool {
     matches!(name, "127.0.0.1" | "localhost" | "[::1]")
 }
 
+/// One GET to a loopback server of this machine, with a token. The answer must
+/// be 200; its body is returned.
+pub fn get(addr: SocketAddr, path: &str, token: &str) -> Result<Vec<u8>> {
+    if !addr.ip().is_loopback() {
+        bail!("{addr} is not a loopback address");
+    }
+    let mut stream = TcpStream::connect_timeout(&addr, Duration::from_millis(500))?;
+    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+    write!(stream, "GET {path} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n")?;
+    let mut answer = Vec::new();
+    stream.take(16 * MAX_BODY as u64).read_to_end(&mut answer)?;
+    let end = answer.windows(4).position(|w| w == b"\r\n\r\n").ok_or_else(|| anyhow::anyhow!("no headers in the answer"))?;
+    let head = String::from_utf8_lossy(&answer[..end]);
+    let status = head.split(' ').nth(1).unwrap_or("");
+    if status != "200" {
+        bail!("{addr}{path} answered {status}");
+    }
+    Ok(answer[end + 4..].to_vec())
+}
+
 /// Serves requests one by one. `token` is required on every request.
 pub fn serve(listener: TcpListener, token: &str, handler: &mut dyn FnMut(Request) -> Response) -> Result<()> {
     serve_with(listener, token, &[], false, handler)

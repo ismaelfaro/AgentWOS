@@ -148,7 +148,18 @@ target/release/agentwos-host --harness examples/cli-harness/manifest.json --dash
 
 The host prints a link with a one-time token; open it. The dashboard keeps
 running after a `--message` answer until Ctrl-C, and works with `--serve-http`
-too. It is an agent that can only read the kernel's record, so it needs no
+too.
+
+It can also run on its own, as a monitor of the system, started before or after
+any harness:
+
+```bash
+target/release/agentwos-host --dashboard 127.0.0.1:8830
+```
+
+It finds the running kernel, connects, and when that kernel ends waits for the
+next one. Each harness serves its record read-only on loopback and leaves a note
+only you can read; `--no-observe` hides a harness from monitors. It is an agent that can only read the kernel's record, so it needs no
 change to the agents it watches. Design: [../../design/dashboard.md](../../design/dashboard.md).
 
 ## The agents

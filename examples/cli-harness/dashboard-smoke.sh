@@ -24,6 +24,7 @@ ok() { if [ "$1" = 0 ]; then echo "ok    $2"; else echo "FAIL  $2"; [ -n "${3:-}
   sleep 40
 } | "$host" --harness "$here/manifest.json" --project "$ws" --dashboard 127.0.0.1:0 >/dev/null 2>"$err" &
 pid=$!
+disown $pid
 trap 'kill $pid 2>/dev/null; rm -f "$err"' EXIT
 
 url=""
@@ -93,5 +94,48 @@ got="$(api 'api/report?agent=nobody')"
 # Not on loopback: refused before anything is served.
 got="$("$host" --harness "$here/manifest.json" --project "$ws" --dashboard 0.0.0.0:0 --message '/echo x' 2>&1)"
 [[ "$got" == *"not a loopback address"* ]]; ok $? "a non-loopback address is refused" "$got"
+
+# --- On its own: the dashboard is started first, waits, connects to the kernel
+# that starts, follows it when it ends, and connects to the next one. A private
+# run folder keeps other kernels on this machine out of the test.
+export AGENTWOS_RUN_DIR="$ws/run"
+"$host" --dashboard 127.0.0.1:0 2>"$err.alone" &
+alone=$!
+disown $alone
+trap 'kill $pid $alone 2>/dev/null; rm -f "$err" "$err.alone"' EXIT
+url=""
+for _ in $(seq 50); do url="$(grep -o 'http://[^ ]*' "$err.alone" | head -1)"; [ -n "$url" ] && break; sleep 0.1; done
+base="${url%%/#*}"; token="${url##*token=}"
+state() { field "$(api 'api/snapshot?after=0')" "d['source']['state'] + ' ' + str(d['source'].get('kernel', {}).get('pid', '')) + ' ' + ','.join(a['name'] for a in d['agents'])"; }
+
+got="$(state)"
+[[ "$got" == "waiting"* ]]; ok $? "alone, with no kernel running, the dashboard waits" "$got"
+
+run_kernel() { { printf '%s\n' "$@"; sleep 5; } | "$host" --harness "$here/manifest.json" --project "$ws" >/dev/null 2>&1 & }
+run_kernel '/echo one'
+k1=$!
+for _ in $(seq 40); do got="$(state)"; [[ "$got" == "connected $k1 "*echo* ]] && break; sleep 0.1; done
+[[ "$got" == "connected $k1 "*echo* ]]; ok $? "it connects to the kernel that starts, and sees its agents" "$got"
+note="$(ls "$AGENTWOS_RUN_DIR/kernels/")"
+perm="$(stat -f '%Lp' "$AGENTWOS_RUN_DIR/kernels/$note" 2>/dev/null || stat -c '%a' "$AGENTWOS_RUN_DIR/kernels/$note")"
+[ "$perm" = 600 ]; ok $? "the kernel's note is readable by this user only" "$perm"
+
+wait $k1
+got="$(state)"
+[[ "$got" == "waiting"* ]]; ok $? "when the kernel ends, the dashboard waits again" "$got"
+[ -z "$(ls "$AGENTWOS_RUN_DIR/kernels/")" ]; ok $? "the kernel's note goes with it" "$(ls "$AGENTWOS_RUN_DIR/kernels/")"
+
+run_kernel '/files list'
+k2=$!
+for _ in $(seq 40); do got="$(state)"; [[ "$got" == "connected $k2 "* ]] && break; sleep 0.1; done
+[[ "$got" == "connected $k2 "*files* && "$got" != *echo* ]]; ok $? "and it connects to the next kernel, with nothing of the last one" "$got"
+wait $k2
+
+{ echo '/echo hidden'; sleep 3; } | "$host" --harness "$here/manifest.json" --project "$ws" --no-observe >/dev/null 2>&1 &
+k3=$!
+sleep 1.5
+got="$(state)"
+[[ "$got" == "waiting"* ]]; ok $? "a kernel started with --no-observe cannot be seen" "$got"
+wait $k3
 
 [ "$failed" = 0 ] && echo "all checks passed" || { echo "some checks failed"; exit 1; }

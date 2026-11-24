@@ -6,6 +6,7 @@ mod harness;
 mod a2a;
 mod http;
 mod mcp;
+mod observe;
 mod prompt;
 mod runner;
 mod runtime;
@@ -74,11 +75,23 @@ struct Args {
     #[arg(long, value_name = "ADDR")]
     serve_http: Option<String>,
 
-    /// With --harness: show what the agents do on a dashboard at this loopback
-    /// address (for example 127.0.0.1:8830). The link, with its token, is
-    /// printed on stderr.
+    /// Show a dashboard at this loopback address (for example 127.0.0.1:8830);
+    /// the link, with its token, is printed on stderr. Alone, it watches
+    /// whichever kernel is running and waits for one if none is. With
+    /// --harness, it watches that harness.
     #[arg(long, value_name = "ADDR")]
     dashboard: Option<String>,
+
+    /// With --dashboard alone: watch the kernel with this process id instead
+    /// of the newest one.
+    #[arg(long, value_name = "PID")]
+    kernel: Option<u32>,
+
+    /// With --harness: do not let monitors that run on their own see this
+    /// kernel. By default a running harness serves its ledger, read-only, on a
+    /// loopback port that only this user is told about.
+    #[arg(long)]
+    no_observe: bool,
 
     /// Scenario WASM component (overrides the manifest).
     #[arg(long)]
@@ -152,14 +165,17 @@ fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     if let Some(path) = &args.harness {
-        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve, serve_http: args.serve_http, dashboard: args.dashboard };
+        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve, serve_http: args.serve_http, dashboard: args.dashboard, observe: !args.no_observe };
         return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list, args.trace, mcp);
     }
     if args.mcp_approve.is_some() || args.mcp_status || args.mcp_call.is_some() || args.mcp_serve || args.serve_http.is_some() {
         bail!("the --mcp-* options need --harness");
     }
-    if args.list || args.project.is_some() || args.dashboard.is_some() {
-        bail!("--list, --project and --dashboard need --harness");
+    if let Some(addr) = &args.dashboard {
+        return dashboard::run_alone(&engine, addr, args.kernel);
+    }
+    if args.list || args.project.is_some() || args.no_observe {
+        bail!("--list, --project and --no-observe need --harness");
     }
 
     let manifest = match &args.manifest {

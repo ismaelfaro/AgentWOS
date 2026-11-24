@@ -492,6 +492,8 @@ pub struct McpOptions {
     pub serve_http: Option<String>,
     /// Show what the agents do on a dashboard, on this loopback address.
     pub dashboard: Option<String>,
+    /// Serve the ledger read-only for monitors that run on their own.
+    pub observe: bool,
 }
 
 /// State of the Store that serves an outside MCP client. The agents offered
@@ -742,9 +744,16 @@ pub fn run(
         }
         return Ok(());
     }
+    // From here on this process is a running kernel: monitors started on their
+    // own can find it and read its ledger. Not finding it is not fatal.
+    let name = path.canonicalize().ok().and_then(|p| p.parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().into_owned())).unwrap_or_else(|| "harness".into());
+    let _published = match mcp_options.observe {
+        true => crate::observe::publish(&ledger, &name).map_err(|e| eprintln!("monitors cannot see this kernel: {e}")).ok(),
+        false => None,
+    };
     if mcp_options.serve || mcp_options.serve_http.is_some() {
         if let Some(addr) = &mcp_options.dashboard {
-            let running = crate::dashboard::start(engine, addr, ledger.clone())?;
+            let running = crate::dashboard::start(engine, addr, crate::dashboard::Source::Here(ledger.clone()))?;
             eprintln!("dashboard: {}", running.url());
         }
         let config = serve_config.ok_or_else(|| anyhow!("serving needs `mcp.serve` in the manifest"))?;
@@ -753,7 +762,7 @@ pub fn run(
     let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
     let watching = match &mcp_options.dashboard {
         Some(addr) => {
-            let running = crate::dashboard::start(engine, addr, ledger.clone())?;
+            let running = crate::dashboard::start(engine, addr, crate::dashboard::Source::Here(ledger.clone()))?;
             eprintln!("dashboard: {}", running.url());
             true
         }

@@ -79,6 +79,8 @@ fn secs(ms: u64) -> String {
 
 impl Guest for Component {
     fn snapshot(after: u64) -> String {
+        // First, so a monitor that is not attached yet looks for a kernel now.
+        let source: Value = serde_json::from_str(&observe::source()).unwrap_or(Value::Null);
         let now = observe::now();
         let stats = observe::agents();
         let mut agents = Vec::new();
@@ -107,6 +109,7 @@ impl Guest for Component {
         }
         let next = events.last().map_or(after, |e| e.seq);
         json!({
+            "source": source,
             "now_ms": now,
             "totals": { "agents": stats.len(), "busy": totals[0], "calls": totals[1], "errors": totals[2],
                         "thoughts": totals[3], "files": totals[4], "programs": totals[5] },

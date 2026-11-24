@@ -53,6 +53,7 @@ header {
 .live.on i { background: var(--ok); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); animation: pulse 1.6s infinite; }
 .live.lost i { background: var(--bad); }
 .live.paused i { background: var(--warn); }
+.live.waiting i { background: var(--warn); animation: pulse 1.6s infinite; }
 @keyframes pulse { 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
 .grow { flex: 1; }
 button { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 6px 12px; cursor: pointer; transition: border-color .15s, background .15s; }
@@ -223,7 +224,7 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
 (() => {
   const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   const $ = (id) => document.getElementById(id);
-  let after = 0, paused = false, picked = null, snap = null;
+  let after = 0, paused = false, picked = null, snap = null, kernelId;
   const events = [];            // newest last, capped
   const CAP = 3000, SHOWN = 300, WINDOW = 60000, SPARK = 60;
 
@@ -311,10 +312,10 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
     const box = $("graph"), W = Math.max(box.clientWidth - 16, 300);
     const stat = Object.fromEntries(list.map((a) => [a.name, a]));
     const shape = list.map((a) => [a.name, a.state, a.calls]);
-    if (!changed("graph", [shape, edges, picked, W])) return;
+    if (!changed("graph", [shape, edges, picked, W, snap.source && snap.source.state])) return;
     box.replaceChildren();
     const names = [...new Set([...list.map((a) => a.name), ...edges.flatMap((e) => [e.from, e.to])])];
-    if (!edges.length) { box.append(el("div", "empty", "No agent has asked another yet.")); return; }
+    if (!edges.length) { box.append(el("div", "empty", snap.source && snap.source.state === "waiting" ? "Waiting for a kernel to start…" : "No agent has asked another yet.")); return; }
     const incoming = new Set(edges.map((e) => e.to));
     const roots = names.filter((n) => !incoming.has(n));
     const depth = {}; const queue = (roots.length ? roots : [names[0]]).map((n) => (depth[n] = 0, n));
@@ -430,7 +431,13 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
   }
   function agents(list) {
     const box = $("agents");
-    if (!list.length) { if (!box.querySelector(".empty")) { box.replaceChildren(el("div", "empty", "No agent has run yet. Ask one something and it appears here.")); cards.clear(); } return; }
+    if (!list.length) {
+      const waiting = snap.source && snap.source.state === "waiting";
+      const text = waiting ? "No kernel is running. Start one (agentwos-host --harness …) and this page connects to it." : "No agent has run yet. Ask one something and it appears here.";
+      const shown = box.querySelector(".empty");
+      if (!shown || shown.textContent !== text) { box.replaceChildren(el("div", "empty", text)); cards.clear(); }
+      return;
+    }
     box.querySelector(".empty")?.remove();
     const seen = new Set();
     list.forEach((a, i) => {
@@ -461,11 +468,11 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
 
   // --- feed: oldest at the top, new rows appended at the bottom. It follows the
   // newest row only while you are at the bottom; scroll up and it stays where you are.
-  let fed = 0, fedFor;
+  let fed = 0, fedFor, fedKernel;
   const matches = (e) => !picked || e.agent === picked || e.caller === picked;
   function feed() {
     const box = $("feed");
-    if (fedFor !== picked) { box.replaceChildren(); fed = 0; fedFor = picked; }
+    if (fedFor !== picked || fedKernel !== kernelId) { box.replaceChildren(); fed = 0; fedFor = picked; fedKernel = kernelId; }
     const fresh = events.filter((e) => e.seq > fed && matches(e));
     if (events.length) fed = events[events.length - 1].seq;
     box.querySelector(".empty")?.remove();
@@ -487,7 +494,7 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
   function draw() {
     if (!snap) return;
     kpis(snap.totals); alerts(snap.alerts); graph(snap.agents, snap.edges || []); lanes(snap.agents); agents(snap.agents); feed();
-    set($("uptime"), "up " + clock(snap.now_ms));
+    set($("uptime"), snap.source && snap.source.state === "waiting" ? "" : "kernel up " + clock(snap.now_ms));
     set($("pickedNote"), picked ? "following " + picked + " · click again to clear" : "");
   }
 
@@ -497,9 +504,19 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
       const r = await fetch("/api/snapshot?after=" + after, { headers: { Authorization: "Bearer " + token } });
       if (r.status === 401) { status("lost", "wrong or missing token: open the link the host printed"); return; }
       const s = await r.json();
+      // A different kernel counts its events from 1 again: start over.
+      const id = s.source && s.source.kernel ? s.source.kernel.id : null;
+      if (id !== kernelId) {
+        const first = kernelId === undefined;
+        kernelId = id; events.length = 0; for (const k in signatures) delete signatures[k];
+        if (!first || after) { after = 0; return poll(); }
+      }
       for (const e of s.events) events.push(e);
       if (events.length > CAP) events.splice(0, events.length - CAP);
-      after = s.next; snap = s; status("on", "live"); draw();
+      after = s.next; snap = s;
+      if (!id) status("waiting", "waiting for a kernel");
+      else status("on", s.source.kernel.name + " · pid " + s.source.kernel.pid);
+      draw();
     } catch (_) { status("lost", "disconnected"); }
   }
 
@@ -513,6 +530,8 @@ main { padding: 20px 24px 40px; max-width: 1440px; margin: 0 auto; display: grid
   };
   try { const t = localStorage.getItem("agentwos-theme"); if (t) document.documentElement.dataset.theme = t; } catch (_) {}
   addEventListener("resize", () => { delete signatures.graph; draw(); });
+  // A new link to the same address carries a new token: start again with it.
+  addEventListener("hashchange", () => location.reload());
   setInterval(() => { if (!paused) poll(); }, 1000);
   poll();
 })();

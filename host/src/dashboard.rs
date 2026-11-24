@@ -1,19 +1,22 @@
 //! Serves the dashboard agent to a browser. The agent is a WASM component
-//! that can only read the kernel's ledger (`observe`); this file gives it that
-//! read, and carries its page and its JSON to a loopback address. What counts
-//! as trouble, and how it looks, is the component's business, not the host's.
+//! that can only read what a kernel recorded (`observe`). It runs either inside
+//! the kernel it watches, or on its own: then it finds a running kernel through
+//! the note the kernel leaves (see `observe.rs`), reads it over loopback, and
+//! when that kernel ends it waits for the next one. What counts as trouble, and
+//! how it looks, is the component's business, not the host's.
 
-use std::io::Read;
 use std::net::SocketAddr;
 use std::thread;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
+use serde_json::{json, Value};
 use wasmtime::component::{Component, HasSelf, Linker};
 use wasmtime::{Engine, Store};
 use wasmtime_wasi::{WasiCtxView, WasiView};
 
 use crate::http::{self, Response};
 use crate::ledger::Ledger;
+use crate::observe::{self as window, Kernel};
 use crate::runtime::WasiState;
 
 pub mod world {
@@ -26,11 +29,55 @@ const DASHBOARD: &[u8] = include_bytes!("../../modules/dashboard/target/wasm32-w
 /// Most events one read may ask for.
 const MAX_EVENTS: usize = 4096;
 
-/// The Store of the dashboard agent. It holds the ledger and nothing else: no
-/// files, no network, no other agent.
+/// What the dashboard watches.
+pub enum Source {
+    /// The kernel it runs in.
+    Here(Ledger),
+    /// A kernel in another process: the one with this pid, or the newest.
+    Away { pid: Option<u32>, kernel: Option<Kernel> },
+}
+
+impl Source {
+    /// The kernel to read, found again if the last one is gone.
+    fn kernel(&mut self) -> Option<&Kernel> {
+        let Source::Away { pid, kernel } = self else { return None };
+        if kernel.as_ref().is_some_and(|k| !window::alive(k.pid)) {
+            *kernel = None;
+        }
+        if kernel.is_none() {
+            *kernel = window::kernels().into_iter().find(|k| pid.is_none_or(|p| k.pid == p));
+        }
+        kernel.as_ref()
+    }
+
+    /// One read from the kernel away. A failure forgets the kernel, so the next
+    /// read looks for one again.
+    fn read(&mut self, path: &str) -> Option<Value> {
+        let answer = self.kernel()?.get(path);
+        match answer {
+            Ok(value) => Some(value),
+            Err(_) => {
+                if let Source::Away { kernel, .. } = self {
+                    *kernel = None;
+                }
+                None
+            }
+        }
+    }
+
+    fn json(&mut self, path: &str, here: impl Fn(&Ledger) -> Value) -> Value {
+        match self {
+            Source::Here(ledger) => here(ledger),
+            Source::Away { .. } => self.read(path).unwrap_or(Value::Null),
+        }
+    }
+}
+
+/// The Store of the dashboard agent. It holds what it watches and nothing else:
+/// no files, no network of its own, no other agent.
 struct State {
     wasi: WasiState,
-    ledger: Ledger,
+    source: Source,
 }
 
 impl WasiView for State {
@@ -39,58 +86,77 @@ impl WasiView for State {
     }
 }
 
+fn text(v: &Value, key: &str) -> String {
+    v[key].as_str().unwrap_or("").to_string()
+}
+fn num(v: &Value, key: &str) -> u64 {
+    v[key].as_u64().unwrap_or(0)
+}
+fn list(v: Value) -> Vec<Value> {
+    match v {
+        Value::Array(items) => items,
+        _ => Vec::new(),
+    }
+}
+
 impl observe::Host for State {
+    fn source(&mut self) -> String {
+        match &mut self.source {
+            Source::Here(_) => json!({ "state": "connected", "kernel": { "id": format!("here-{}", std::process::id()), "pid": std::process::id(), "name": "this kernel" } }),
+            away => match away.kernel().map(Kernel::describe) {
+                Some(kernel) => json!({ "state": "connected", "kernel": kernel }),
+                None => json!({ "state": "waiting", "looking_in": window::run_dir() }),
+            },
+        }
+        .to_string()
+    }
+
     fn now(&mut self) -> u64 {
-        self.ledger.now_ms()
+        num(&self.source.json("/observe/now", |l| json!({ "now_ms": l.now_ms() })), "now_ms")
     }
 
     fn agents(&mut self) -> Vec<observe::AgentStat> {
-        self.ledger
-            .agents()
-            .into_iter()
+        list(self.source.json("/observe/agents", window::agents_json))
+            .iter()
             .map(|a| observe::AgentStat {
-                name: a.name,
-                busy: a.busy,
-                calls: a.calls,
-                errors: a.errors,
-                thoughts: a.thoughts,
-                files: a.files,
-                programs: a.programs,
-                total_ms: a.total_ms,
-                busy_since_ms: a.busy_since_ms,
-                last_ms: a.last_ms,
-                last: a.last,
+                name: text(a, "name"),
+                busy: num(a, "busy") as u32,
+                calls: num(a, "calls") as u32,
+                errors: num(a, "errors") as u32,
+                thoughts: num(a, "thoughts") as u32,
+                files: num(a, "files") as u32,
+                programs: num(a, "programs") as u32,
+                total_ms: num(a, "total_ms"),
+                busy_since_ms: num(a, "busy_since_ms"),
+                last_ms: num(a, "last_ms"),
+                last: text(a, "last"),
             })
             .collect()
     }
 
     fn edges(&mut self) -> Vec<observe::Edge> {
-        self.ledger.edges().into_iter().map(|e| observe::Edge { caller: e.caller, agent: e.agent, calls: e.calls, busy: e.busy }).collect()
+        list(self.source.json("/observe/edges", window::edges_json))
+            .iter()
+            .map(|e| observe::Edge { caller: text(e, "caller"), agent: text(e, "agent"), calls: num(e, "calls") as u32, busy: num(e, "busy") as u32 })
+            .collect()
     }
 
     fn events(&mut self, after: u64, limit: u32) -> Vec<observe::Event> {
-        self.ledger
-            .events_after(after, (limit as usize).min(MAX_EVENTS))
-            .into_iter()
+        let limit = (limit as usize).min(MAX_EVENTS);
+        list(self.source.json(&format!("/observe/events?after={after}&limit={limit}"), |l| window::events_json(l, after, limit)))
+            .iter()
             .map(|e| observe::Event {
-                seq: e.seq,
-                at_ms: e.at_ms,
-                agent: e.agent,
-                caller: e.caller,
-                kind: e.kind.to_string(),
-                detail: e.detail,
-                ms: e.ms,
-                ok: e.ok,
+                seq: num(e, "seq"),
+                at_ms: num(e, "at_ms"),
+                agent: text(e, "agent"),
+                caller: text(e, "caller"),
+                kind: text(e, "kind"),
+                detail: text(e, "detail"),
+                ms: num(e, "ms"),
+                ok: e["ok"].as_bool().unwrap_or(false),
             })
             .collect()
     }
-}
-
-/// A token a browser must send to read anything but the page.
-fn new_token() -> Result<String> {
-    let mut bytes = [0u8; 24];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut bytes)?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 /// What `start` hands back: where it listens and how to open it.
@@ -106,17 +172,17 @@ impl Running {
 }
 
 /// Starts the dashboard on a loopback address, on its own thread, and returns
-/// at once. It watches `ledger` until the process ends.
-pub fn start(engine: &Engine, addr: &str, ledger: Ledger) -> Result<Running> {
+/// at once. It watches `source` until the process ends.
+pub fn start(engine: &Engine, addr: &str, source: Source) -> Result<Running> {
     let listener = http::listen(addr)?;
     let local = listener.local_addr()?;
-    let token = new_token()?;
+    let token = window::new_token()?;
 
     let component = Component::new(engine, DASHBOARD)?;
     let mut linker = Linker::<State>::new(engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
     DashboardModule::add_to_linker::<_, HasSelf<State>>(&mut linker, |s| s)?;
-    let mut store = Store::new(engine, State { wasi: WasiState::new(&[]), ledger });
+    let mut store = Store::new(engine, State { wasi: WasiState::new(&[]), source });
     let bindings = DashboardModule::instantiate(&mut store, &component, &linker)?;
     let page = bindings.agentwos_core_dashboard().call_page(&mut store)?;
 
@@ -148,5 +214,19 @@ pub fn start(engine: &Engine, addr: &str, ledger: Ledger) -> Result<Running> {
             eprintln!("dashboard stopped: {e}");
         }
     });
-    Ok(Running { addr: local, token }).map_err(|e: anyhow::Error| anyhow!("dashboard: {e}"))
+    Ok(Running { addr: local, token })
+}
+
+/// The dashboard on its own: no agents of its own, it watches whichever kernel
+/// is running (the one with `pid`, if given) and waits when there is none.
+pub fn run_alone(engine: &Engine, addr: &str, pid: Option<u32>) -> Result<()> {
+    let running = start(engine, addr, Source::Away { pid, kernel: None })?;
+    eprintln!("dashboard: {}", running.url());
+    match window::kernels().into_iter().find(|k| pid.is_none_or(|p| k.pid == p)) {
+        Some(k) => eprintln!("watching kernel {} ({})", k.pid, k.name),
+        None => eprintln!("no kernel is running yet; the dashboard will connect to the next one that starts"),
+    }
+    loop {
+        thread::park();
+    }
 }
