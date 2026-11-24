@@ -31,8 +31,9 @@ struct Alert {
 fn alerts_of(a: &AgentStat, now: u64) -> Vec<Alert> {
     let mut out = Vec::new();
     if a.busy > 0 && now.saturating_sub(a.busy_since_ms) > STUCK_MS {
-        let secs = now.saturating_sub(a.busy_since_ms) / 1000;
-        out.push(Alert { level: "bad", text: format!("busy for {secs}s without answering") });
+        // Whole minutes, so the text changes once a minute and a page does not redraw every second.
+        let minutes = now.saturating_sub(a.busy_since_ms) / 60_000;
+        out.push(Alert { level: "bad", text: format!("busy for over {minutes} min without answering") });
     }
     if a.calls >= 2 && a.errors * 2 >= a.calls {
         out.push(Alert { level: "bad", text: format!("{} failures in {} calls", a.errors, a.calls) });
