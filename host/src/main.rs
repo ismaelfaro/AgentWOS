@@ -1,5 +1,7 @@
 mod activity;
 mod control;
+mod dashboard;
+mod ledger;
 mod harness;
 mod a2a;
 mod http;
@@ -71,6 +73,12 @@ struct Args {
     /// /.well-known/agent-card.json. Needs `mcp.serve.auth.bearer_env`.
     #[arg(long, value_name = "ADDR")]
     serve_http: Option<String>,
+
+    /// With --harness: show what the agents do on a dashboard at this loopback
+    /// address (for example 127.0.0.1:8830). The link, with its token, is
+    /// printed on stderr.
+    #[arg(long, value_name = "ADDR")]
+    dashboard: Option<String>,
 
     /// Scenario WASM component (overrides the manifest).
     #[arg(long)]
@@ -144,14 +152,14 @@ fn main() -> Result<()> {
     let engine = Engine::new(&config)?;
 
     if let Some(path) = &args.harness {
-        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve, serve_http: args.serve_http };
+        let mcp = harness::McpOptions { approve: args.mcp_approve, status: args.mcp_status, call: args.mcp_call, serve: args.mcp_serve, serve_http: args.serve_http, dashboard: args.dashboard };
         return harness::run(&engine, path, args.project, args.model.as_deref(), args.message.as_deref(), args.list, args.trace, mcp);
     }
     if args.mcp_approve.is_some() || args.mcp_status || args.mcp_call.is_some() || args.mcp_serve || args.serve_http.is_some() {
         bail!("the --mcp-* options need --harness");
     }
-    if args.list || args.project.is_some() {
-        bail!("--list and --project need --harness");
+    if args.list || args.project.is_some() || args.dashboard.is_some() {
+        bail!("--list, --project and --dashboard need --harness");
     }
 
     let manifest = match &args.manifest {

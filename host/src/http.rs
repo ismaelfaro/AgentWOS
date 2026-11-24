@@ -28,15 +28,27 @@ pub struct Request {
 pub struct Response {
     pub status: u16,
     pub body: Vec<u8>,
+    pub content_type: &'static str,
 }
+
+const JSON: &str = "application/json";
 
 impl Response {
     pub fn json(status: u16, value: &serde_json::Value) -> Self {
-        Self { status, body: value.to_string().into_bytes() }
+        Self { status, body: value.to_string().into_bytes(), content_type: JSON }
+    }
+
+    /// A body that is already JSON text.
+    pub fn json_text(status: u16, text: String) -> Self {
+        Self { status, body: text.into_bytes(), content_type: JSON }
+    }
+
+    pub fn html(text: String) -> Self {
+        Self { status: 200, body: text.into_bytes(), content_type: "text/html; charset=utf-8" }
     }
 
     pub fn empty(status: u16) -> Self {
-        Self { status, body: Vec::new() }
+        Self { status, body: Vec::new(), content_type: JSON }
     }
 }
 
@@ -157,6 +169,7 @@ fn reason(status: u16) -> &'static str {
         202 => "Accepted",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         413 => "Payload Too Large",
@@ -167,9 +180,10 @@ fn reason(status: u16) -> &'static str {
 
 fn write_response(stream: &mut TcpStream, response: &Response) {
     let head = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\r\n",
         response.status,
         reason(response.status),
+        response.content_type,
         response.body.len()
     );
     let _ = stream.write_all(head.as_bytes());
@@ -177,8 +191,29 @@ fn write_response(stream: &mut TcpStream, response: &Response) {
     let _ = stream.flush();
 }
 
+/// Whether a `Host` header names this machine's loopback address. A page on
+/// another site that points its own name at 127.0.0.1 would send its own
+/// name instead, so it does not pass.
+fn host_is_loopback(host: &str) -> bool {
+    let name = host.rsplit_once(':').filter(|(_, port)| port.bytes().all(|b| b.is_ascii_digit())).map_or(host, |(name, _)| name);
+    matches!(name, "127.0.0.1" | "localhost" | "[::1]")
+}
+
 /// Serves requests one by one. `token` is required on every request.
 pub fn serve(listener: TcpListener, token: &str, handler: &mut dyn FnMut(Request) -> Response) -> Result<()> {
+    serve_with(listener, token, &[], false, handler)
+}
+
+/// Like `serve`, for a server a browser talks to: the paths in `public` (a page
+/// that holds no data) answer without the token, and with `loopback_host` a
+/// request whose `Host` is not a loopback name is refused.
+pub fn serve_with(
+    listener: TcpListener,
+    token: &str,
+    public: &[&str],
+    loopback_host: bool,
+    handler: &mut dyn FnMut(Request) -> Response,
+) -> Result<()> {
     for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
         let _ = stream.set_read_timeout(Some(IO_TIMEOUT));
@@ -187,7 +222,13 @@ pub fn serve(listener: TcpListener, token: &str, handler: &mut dyn FnMut(Request
             Err((status, why)) => Response::json(status, &serde_json::json!({ "error": why })),
             Ok(request) => {
                 let given = request.headers.get("authorization").and_then(|v| v.strip_prefix("Bearer ")).unwrap_or("");
-                if !same_secret(given, token) {
+                let path = request.path.split('?').next().unwrap_or("");
+                let host_ok = !loopback_host || request.headers.get("host").is_some_and(|h| host_is_loopback(h));
+                if !host_ok {
+                    Response::json(403, &serde_json::json!({ "error": "this server answers on a loopback address only" }))
+                } else if request.method == "GET" && public.contains(&path) {
+                    handler(request)
+                } else if !same_secret(given, token) {
                     Response::json(401, &serde_json::json!({ "error": "unauthorized" }))
                 } else {
                     handler(request)
@@ -208,6 +249,15 @@ mod tests {
         assert!(listen("0.0.0.0:0").is_err());
         assert!(listen("192.168.1.5:0").is_err());
         assert!(listen("127.0.0.1:0").is_ok());
+    }
+
+    #[test]
+    fn only_loopback_host_names_pass() {
+        assert!(host_is_loopback("127.0.0.1:8830"));
+        assert!(host_is_loopback("localhost:8830"));
+        assert!(host_is_loopback("[::1]:8830"));
+        assert!(!host_is_loopback("evil.example:8830"));
+        assert!(!host_is_loopback("127.0.0.1.evil.example"));
     }
 
     #[test]

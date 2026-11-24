@@ -25,6 +25,7 @@ use crate::runtime::{
     WasiState,
 };
 use crate::activity::Activity;
+use crate::ledger::Ledger;
 use crate::mcp::{self, Mcp, McpConfig};
 use crate::prompt::Requests;
 use crate::workspace::Workspace;
@@ -334,7 +335,7 @@ impl Plugins {
                 if outside { workspace.confined() } else { workspace }
             }),
             plugins: scope.reaches_anything().then(|| Self { scope: scope.clone(), ..self.clone() }),
-            activity: self.activity.clone(),
+            activity: self.activity.as_agent(&spec.name),
         };
         let mut store = Store::new(&registry.engine, state);
         let bindings = PluginModule::instantiate(&mut store, &plugin.component, &registry.linker)?;
@@ -352,7 +353,7 @@ impl Plugins {
             .ok_or_else(|| CallError::NotFound(format!("there is no agent '{name}'")))?;
         let (mut store, bindings) =
             self.instantiate_with(plugin, grants, true).map_err(|e| CallError::ExecutionFailed(format!("starting '{name}': {e}")))?;
-        self.activity.agent(name, input, || {
+        self.activity.as_agent("outside").agent(name, input, || {
             bindings
                 .agentwos_core_agent()
                 .call_run(&mut store, &[message("user", input)])
@@ -428,7 +429,7 @@ impl Tools for Plugins {
         // What the plugin does, and whoever it asks, is one level further in.
         let inside = Self {
             depth: self.depth + 1,
-            activity: self.activity.deeper(),
+            activity: self.activity.deeper().as_agent(&plugin.spec.name),
             scope: Scope::of_grants(&plugin.spec.name, &plugin.spec.grants),
             ..self.clone()
         };
@@ -489,6 +490,8 @@ pub struct McpOptions {
     pub serve: bool,
     /// Answer outside MCP and A2A callers over HTTP, on this loopback address.
     pub serve_http: Option<String>,
+    /// Show what the agents do on a dashboard, on this loopback address.
+    pub dashboard: Option<String>,
 }
 
 /// State of the Store that serves an outside MCP client. The agents offered
@@ -650,7 +653,7 @@ fn serve_http(addr: &str, store: &mut Store<ServeState>, bindings: &McpServerMod
                     return Response::json(400, &json!({ "error": "the body is not text" }));
                 };
                 match bindings.agentwos_core_mcp_server().call_handle(&mut *store, &body) {
-                    Ok(Some(reply)) => Response { status: 200, body: reply.into_bytes() },
+                    Ok(Some(reply)) => Response::json_text(200, reply),
                     Ok(None) => Response::empty(202),
                     Err(e) => Response::json(500, &json!({ "error": format!("the MCP bridge failed: {e}") })),
                 }
@@ -704,7 +707,10 @@ pub fn run(
         println!("\n/<plugin> <input> calls a plugin. Anything else goes to {rest}. /help, /exit.\n");
     }
 
-    let activity = Activity::new(trace);
+    // The ledger is always kept; it costs a few kilobytes and lets a dashboard
+    // started now, or later, see what has happened.
+    let ledger = Ledger::new();
+    let activity = Activity::new(trace, Some(ledger.clone()));
     let serve_config = manifest.mcp.as_ref().and_then(|m| m.serve.clone());
     let plugins = Plugins::load(engine, manifest, &project, &model, &activity)?;
     // What the guards flagged while connecting, and any sidecar that is not ready.
@@ -737,16 +743,35 @@ pub fn run(
         return Ok(());
     }
     if mcp_options.serve || mcp_options.serve_http.is_some() {
+        if let Some(addr) = &mcp_options.dashboard {
+            let running = crate::dashboard::start(engine, addr, ledger.clone())?;
+            eprintln!("dashboard: {}", running.url());
+        }
         let config = serve_config.ok_or_else(|| anyhow!("serving needs `mcp.serve` in the manifest"))?;
         return serve(engine, plugins, config, mcp_options.serve_http.as_deref());
     }
     let mut router = AgentInstance::new(engine, &router, &llm, Box::new(plugins))?;
+    let watching = match &mcp_options.dashboard {
+        Some(addr) => {
+            let running = crate::dashboard::start(engine, addr, ledger.clone())?;
+            eprintln!("dashboard: {}", running.url());
+            true
+        }
+        None => false,
+    };
 
     if let Some(text) = text {
         let started = Instant::now();
-        let reply = router.ask(request(default.as_deref(), &model, text));
+        let reply = activity.tracked("router", text, || router.ask(request(default.as_deref(), &model, text)));
         activity.summary(started);
         println!("{}", reply.map_err(|e| anyhow!(e))?);
+        if watching {
+            // The answer is out; the dashboard stays so it can still be read.
+            eprintln!("the dashboard keeps running; press Ctrl-C to stop");
+            loop {
+                std::thread::park();
+            }
+        }
         return Ok(());
     }
 
@@ -754,7 +779,7 @@ pub fn run(
     if let Some(requests) = Requests::start(&activity) {
         while let Some(line) = requests.next().filter(|line| line != "/exit" && line != "/quit") {
             let started = Instant::now();
-            let reply = router.ask(request(default.as_deref(), &model, &line));
+            let reply = activity.tracked("router", &line, || router.ask(request(default.as_deref(), &model, &line)));
             activity.summary(started);
             match reply {
                 Ok(reply) => activity.say(&format!("\n{reply}\n")),
@@ -775,7 +800,7 @@ pub fn run(
         }
         if !line.is_empty() {
             let started = Instant::now();
-            let reply = router.ask(request(default.as_deref(), &model, line));
+            let reply = activity.tracked("router", line, || router.ask(request(default.as_deref(), &model, line)));
             activity.summary(started);
             match reply {
                 Ok(reply) => println!("\n{reply}\n"),

@@ -20,7 +20,7 @@ Check the code before assuming a design term exists in it.
 |---|---|
 | `wit/world.wit` | The one contract. Every interface and world. Host and guests generate bindings from it |
 | `host/` | Native kernel (Rust, Wasmtime). The only member of the root cargo workspace |
-| `modules/*` | Shared guest components. Each is a standalone crate, outside the root workspace |
+| `modules/*` | Shared guest components, including the `dashboard` agent. Each is a standalone crate, outside the root workspace |
 | `web/kernel/` | Browser kernel (plain JavaScript, no dependencies) |
 | `examples/*` | Self-contained examples. Each owns its components, manifest, build script and UI |
 | `design/` | Design proposals: `<feature>.md`, `build/<feature>.md`, `stories/<feature>.md` |
@@ -47,7 +47,8 @@ tools/serve.py                             # then open http://localhost:8765/exa
 ```
 
 Each example's `build.sh` builds everything that example needs. Read it before
-building by hand; build order matters where the host embeds components.
+building by hand; build order matters where the host embeds components (the MCP
+and A2A bridges and `modules/dashboard`; `host/build.rs` names what is missing).
 
 Models: `local/<id>` is LM Studio on `localhost:1234`; `openrouter/<id>` needs
 `OPENROUTER_API_KEY`. Do not print or commit keys.

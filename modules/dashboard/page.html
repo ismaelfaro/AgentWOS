@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentWOS dashboard</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #fff; --ink: #1c2330; --dim: #6b7587; --line: #e1e5ec;
+  --busy: #1d6fe0; --idle: #8a93a5; --bad: #d23b3b; --warn: #c27a00; --ok: #1e9a5a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --panel: #1b2029; --ink: #e6eaf2; --dim: #8b95a8; --line: #2a3140;
+    --busy: #5aa2ff; --idle: #7a8396; --bad: #ff6b6b; --warn: #f0b24a; --ok: #4cd08a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+h1 { font-size: 16px; margin: 0; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--idle); }
+.dot.live { background: var(--ok); }
+.dot.lost { background: var(--bad); }
+.grow { flex: 1; }
+button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.tile b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--dim); font-size: 12px; }
+#alerts { margin-bottom: 14px; display: grid; gap: 6px; }
+.note { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); border-left: 4px solid var(--warn); }
+.note.bad { border-left-color: var(--bad); }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); margin: 18px 0 8px; font-weight: 600; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; cursor: pointer; border-top: 3px solid var(--idle); }
+.card.busy { border-top-color: var(--busy); }
+.card.alert { border-top-color: var(--bad); }
+.card.picked { outline: 2px solid var(--busy); }
+.card .top { display: flex; align-items: center; gap: 8px; }
+.card .name { font-weight: 600; }
+.pill { margin-left: auto; font-size: 11px; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--dim); }
+.busy .pill { color: var(--busy); border-color: var(--busy); }
+.alert.card .pill { color: var(--bad); border-color: var(--bad); }
+.nums { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 0 4px; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+.nums b { color: var(--ink); }
+.last { color: var(--dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.edges { font-size: 11px; color: var(--dim); margin-top: 4px; }
+.warn { color: var(--bad); font-size: 12px; margin-top: 4px; white-space: pre-line; }
+.empty { color: var(--dim); padding: 20px; text-align: center; border: 1px dashed var(--line); border-radius: 8px; }
+#feed { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; height: 45vh; min-height: 220px; overflow-y: auto; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+.row { display: grid; grid-template-columns: 62px 110px 62px 1fr 62px; gap: 8px; padding: 3px 10px; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row.fail { color: var(--bad); }
+.kind { color: var(--dim); }
+.kind.start { color: var(--busy); }
+.kind.end { color: var(--ok); }
+.row .d { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .t, .row .m { color: var(--dim); text-align: right; }
+.filter { color: var(--dim); font-size: 12px; margin-left: 8px; }
+#graph { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; }
+#graph svg { display: block; margin: 0 auto; }
+#graph text { fill: var(--ink); font-size: 12px; }
+#graph .edge { fill: none; stroke: var(--idle); stroke-width: 1.4; opacity: .7; }
+#graph .edge.live { stroke: var(--busy); stroke-width: 2.2; opacity: 1; stroke-dasharray: 6 4; animation: flow .8s linear infinite; }
+#graph .count { fill: var(--dim); font-size: 10px; }
+#graph .node rect { fill: var(--bg); stroke: var(--idle); stroke-width: 1.5; cursor: pointer; }
+#graph .node.busy rect { stroke: var(--busy); stroke-width: 2.5; }
+#graph .node.alert rect { stroke: var(--bad); stroke-width: 2.5; }
+#graph .node.picked rect { fill: var(--line); }
+#graph .node.ghost rect { stroke-dasharray: 3 3; }
+#graph .node.ghost text { fill: var(--dim); }
+@keyframes flow { to { stroke-dashoffset: -20; } }
+@media (max-width: 520px) {
+  header { flex-wrap: nowrap; padding: 8px 12px; }
+  #up { display: none; }
+  main { padding: 12px; }
+  .row { grid-template-columns: 48px 84px 48px 1fr; }
+  .row .m { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>AgentWOS dashboard</h1>
+  <span id="up" class="filter"></span>
+  <span class="grow"></span>
+  <button id="pause">Pause</button>
+</header>
+<main>
+  <div class="tiles" id="tiles"></div>
+  <div id="alerts"></div>
+  <h2>Who asks whom</h2>
+  <div id="graph"></div>
+  <h2>Agents <span class="filter" id="pickedNote"></span></h2>
+  <div class="grid" id="agents"></div>
+  <h2>Events</h2>
+  <div id="feed"></div>
+</main>
+<script>
+(() => {
+  const token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
+  const $ = (id) => document.getElementById(id);
+  let after = 0, paused = false, picked = null, snap = null;
+  const events = [];            // newest last, capped
+  const CAP = 1500, SHOWN = 300;
+
+  const secs = (ms) => (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + "s";
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  // Nothing under the pointer is thrown away and rebuilt while a scroll is going on:
+  // elements are kept and changed in place, and a section is only redrawn when what it shows changed.
+  const set = (node, text) => { if (node.textContent !== String(text)) node.textContent = text; };
+  const cls = (node, value) => { if (node.className !== value) node.className = value; };
+  const signatures = {};
+  const changed = (name, value) => { const s = JSON.stringify(value); if (signatures[name] === s) return false; signatures[name] = s; return true; };
+
+  // --- tiles: seven boxes that stay, their numbers change
+  const TILES = [["agents", "Agents"], ["busy", "Running now"], ["calls", "Calls"], ["errors", "Failed"], ["thoughts", "Model calls"], ["files", "Files"], ["programs", "Programs"]];
+  const tileNumbers = {};
+  for (const [key, label] of TILES) {
+    const d = el("div", "tile"), b = el("b", null, "0"); d.append(b, el("span", null, label));
+    $("tiles").append(d); tileNumbers[key] = b;
+  }
+  const tiles = (t) => { for (const [key] of TILES) set(tileNumbers[key], t[key]); };
+
+  function alerts(list) {
+    if (!changed("alerts", list)) return;
+    const box = $("alerts"); box.replaceChildren();
+    for (const a of list) box.append(el("div", "note " + (a.level === "bad" ? "bad" : ""), a.agent + ": " + a.text));
+  }
+
+  // --- agent cards, one per agent, kept by name
+  const cards = new Map();
+  function makeCard(name) {
+    const c = el("div", "card"), top = el("div", "top"), pill = el("span", "pill");
+    top.append(el("span", "name", name), pill);
+    const nums = el("div", "nums"), counts = {};
+    for (const k of ["calls", "failed", "model", "files", "programs"]) {
+      const s = el("span"), b = el("b", null, "0"); s.append(b, " " + k); nums.append(s); counts[k] = b;
+    }
+    const avg = el("div", "last"), last = el("div", "last"), edges = el("div", "edges"), warns = el("div");
+    c.append(top, nums, avg, last, edges, warns);
+    c.onclick = () => { picked = picked === name ? null : name; draw(); };
+    return { c, pill, counts, avg, last, edges, warns };
+  }
+  function agents(list) {
+    const box = $("agents");
+    if (!list.length) { if (!box.querySelector(".empty")) { box.replaceChildren(el("div", "empty", "No agent has run yet. Ask one something and it appears here.")); cards.clear(); } return; }
+    box.querySelector(".empty")?.remove();
+    const seen = new Set();
+    list.forEach((a, i) => {
+      seen.add(a.name);
+      let k = cards.get(a.name);
+      if (!k) { k = makeCard(a.name); cards.set(a.name, k); }
+      cls(k.c, "card " + a.state + (picked === a.name ? " picked" : ""));
+      set(k.pill, a.state === "busy" ? "running ×" + a.busy : a.state);
+      set(k.counts.calls, a.calls); set(k.counts.failed, a.errors); set(k.counts.model, a.thoughts);
+      set(k.counts.files, a.files); set(k.counts.programs, a.programs);
+      set(k.avg, a.avg_ms ? "avg " + secs(a.avg_ms) + " per call" : ""); set(k.last, a.last || "");
+      const asked = (snap.edges || []).filter((e) => e.to === a.name);
+      set(k.edges, asked.length ? "asked by " + asked.map((e) => e.from + " ×" + e.calls).join(", ") : "");
+      const w = a.alerts.map((x) => "! " + x.text).join("\n");
+      set(k.warns, w); cls(k.warns, w ? "warn" : "");
+      if (box.children[i] !== k.c) box.insertBefore(k.c, box.children[i] || null);
+    });
+    for (const [name, k] of cards) if (!seen.has(name)) { k.c.remove(); cards.delete(name); }
+  }
+
+  // --- graph: layers by distance from whoever asks first (a person, the router, an outside caller)
+  function graph(list, edges) {
+    const box = $("graph"), W = Math.max(box.clientWidth, 320);
+    const state = Object.fromEntries(list.map((a) => [a.name, a.state]));
+    if (!changed("graph", [state, edges, picked, W])) return;
+    box.replaceChildren();
+    const names = [...new Set([...list.map((a) => a.name), ...edges.flatMap((e) => [e.from, e.to])])];
+    if (!edges.length) { box.append(el("div", "empty", "No agent has asked another yet.")); return; }
+    const incoming = new Set(edges.map((e) => e.to));
+    const roots = names.filter((n) => !incoming.has(n));
+    const depth = {}; const queue = (roots.length ? roots : [names[0]]).map((n) => (depth[n] = 0, n));
+    while (queue.length) {
+      const n = queue.shift();
+      for (const e of edges) if (e.from === n && depth[e.to] === undefined) { depth[e.to] = depth[n] + 1; queue.push(e.to); }
+    }
+    for (const n of names) if (depth[n] === undefined) depth[n] = 0;
+    const layers = [];
+    for (const n of names) (layers[depth[n]] ||= []).push(n);
+    const NW = 112, NH = 30, GAP = 74, H = layers.length * GAP + 10;
+    const pos = {};
+    layers.forEach((layer, d) => layer.forEach((n, i) => { pos[n] = { x: (W / (layer.length + 1)) * (i + 1), y: d * GAP + 30 }; }));
+    const NS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("width", W); svg.setAttribute("height", H);
+    const add = (tag, attrs, parent = svg) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.append(e); return e; };
+    for (const e of edges) {
+      const a = pos[e.from], b = pos[e.to]; if (!a || !b) continue;
+      const y1 = a.y + NH / 2, y2 = b.y - NH / 2, my = (y1 + y2) / 2;
+      add("path", { class: "edge" + (e.busy ? " live" : ""), d: `M${a.x},${y1} C${a.x},${my} ${b.x},${my} ${b.x},${y2}` });
+      const t = add("text", { class: "count", x: (a.x + b.x) / 2 + 6, y: my }); t.textContent = "×" + e.calls;
+    }
+    for (const n of names) {
+      const p = pos[n]; const st = state[n];
+      const g = add("g", { class: "node " + (st || "ghost") + (picked === n ? " picked" : "") });
+      add("rect", { x: p.x - NW / 2, y: p.y - NH / 2, width: NW, height: NH, rx: 8 }, g);
+      const t = add("text", { x: p.x, y: p.y + 4, "text-anchor": "middle" }, g); t.textContent = n;
+      if (st) g.onclick = () => { picked = picked === n ? null : n; draw(); };
+    }
+    box.append(svg);
+  }
+
+  // --- feed: oldest at the top, new rows appended at the bottom. It follows the
+  // newest row only while you are at the bottom; scroll up and it stays where you are.
+  let fed = 0, fedFor = undefined;
+  const matches = (e) => !picked || e.agent === picked || e.caller === picked;
+  function feed() {
+    const box = $("feed");
+    if (fedFor !== picked) { box.replaceChildren(); fed = 0; fedFor = picked; }
+    const fresh = events.filter((e) => e.seq > fed && matches(e));
+    if (events.length) fed = events[events.length - 1].seq;
+    box.querySelector(".empty")?.remove();
+    const follow = box.scrollTop + box.clientHeight >= box.scrollHeight - 12 || !box.children.length;
+    for (const e of fresh) {
+      const r = el("div", "row" + (e.ok ? "" : " fail"));
+      r.append(el("span", "t", secs(e.at_ms)), el("span", null, e.agent), el("span", "kind " + e.kind, e.kind),
+               el("span", "d", e.kind === "start" ? "from " + e.caller + ": " + e.detail : e.detail), el("span", "m", e.ms ? secs(e.ms) : ""));
+      r.title = e.detail;
+      box.append(r);
+    }
+    while (box.children.length > SHOWN) box.firstChild.remove();
+    if (!box.children.length) box.append(el("div", "empty", "No events yet."));
+    if (follow) box.scrollTop = box.scrollHeight;
+  }
+
+  function draw() {
+    if (!snap) return;
+    tiles(snap.totals); alerts(snap.alerts); graph(snap.agents, snap.edges || []); agents(snap.agents); feed();
+    set($("up"), "kernel up " + secs(snap.now_ms));
+    set($("pickedNote"), picked ? "· showing " + picked + " (click again to clear)" : "");
+  }
+
+  async function poll() {
+    try {
+      const r = await fetch("/api/snapshot?after=" + after, { headers: { Authorization: "Bearer " + token } });
+      if (r.status === 401) { $("dot").className = "dot lost"; $("up").textContent = "wrong or missing token: open the link the host printed"; return; }
+      const s = await r.json();
+      for (const e of s.events) events.push(e);
+      if (events.length > CAP) events.splice(0, events.length - CAP);
+      after = s.next; snap = s; $("dot").className = "dot live"; draw();
+    } catch (_) { $("dot").className = "dot lost"; }
+  }
+
+  $("pause").onclick = () => { paused = !paused; $("pause").textContent = paused ? "Resume" : "Pause"; };
+  addEventListener("resize", draw);
+  setInterval(() => { if (!paused) poll(); }, 1000);
+  poll();
+})();
+</script>
+</body>
+</html>
