@@ -7,14 +7,16 @@ here="$(cd "$(dirname "$0")" && pwd)"
 name="${1:-agentic-duck-soccer}"
 
 cd "$here"
+./build-lab.sh
 cargo run --release -q -- --pop 8 --gens 10 --eval 100 --seed 1
 cargo run --release -q -- --pop 8 --gens 10 --eval 100 --seed 1 --talk 0 --out runs/silent.js
 
 out="$here/web/deploy"
 rm -rf "$out"
 mkdir -p "$out/runs"
-# The page sits at the root, so its logs move from ../runs to runs.
-sed 's#\.\./runs/#runs/#g' dashboard/index.html > "$out/index.html"
+# The pages sit at the root, so their logs move from ../runs to runs.
+for page in index.html lab.html; do sed 's#\.\./runs/#runs/#g' "dashboard/$page" > "$out/$page"; done
+cp dashboard/duck.js dashboard/lab.wasm "$out/"
 cp runs/latest.js runs/silent.js "$out/runs/"
 
 cat > "$out/_headers" <<'HEADERS'

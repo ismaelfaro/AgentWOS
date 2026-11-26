@@ -54,7 +54,7 @@ leave policy in prompts. AgentWOS takes the operating-system view instead:
 | [CLI harness](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/cli-harness) | Native host | A coding harness of small expert agents |
 | [Tab Swarm](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/tab-swarm) | Node and browsers together | Distributed: one local agent and one per browser tab, exchanging signed intents |
 | [Robot hive](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/robot-hive) | Plain Rust, no WASM | Hive: robots that share one map and decide on their own |
-| [Duck soccer](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-soccer) | Plain Rust, no WASM | Evolution: MicroDuck teams learn to play soccer and invent calls; measures whether talking helps. [Live](https://agentic-duck-soccer.asst.workers.dev) |
+| [Duck soccer](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/duck-soccer) | Plain Rust, no WASM | Evolution: MicroDuck teams learn to play soccer and invent calls; measures whether talking helps. [Live](https://agentic-duck-soccer.asst.workers.dev), [lab](https://agentic-duck-soccer.asst.workers.dev/lab.html) |
 | [MCP colony](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mcp-colony) | Native host | MCP in both directions, through a sidecar the OS watches |
 | [MCP sidecar test bed](https://github.com/ismaelfaro/AgentWOS/blob/main/examples/mcp) | Native host | A server that attacks on purpose, and what the guard does about it |
 
