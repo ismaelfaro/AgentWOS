@@ -152,6 +152,15 @@ score. Beside it: the win rate by generation (talking, the same team muted, and 
 silent lineage if `runs/silent.js` exists), how well calls were understood, how
 readily each call is made, each duck's words, and a play-by-play.
 
+## Publish
+
+```bash
+examples/duck-soccer/deploy.sh     # runs both lineages, then `wrangler deploy` (needs `npx wrangler login`)
+```
+
+The page is static: the dashboard and the two logs, served by Cloudflare as
+`agentic-duck-soccer`.
+
 ## Limits
 
 - **Not MicroDuck's simulator.** A flat 2D model: no legs, no servos, no falls.
