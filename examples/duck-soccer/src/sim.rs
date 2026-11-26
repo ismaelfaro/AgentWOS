@@ -187,6 +187,8 @@ struct Match<'a> {
     chase: Vec<bool>,
     frames: Vec<Vec<f64>>,
     events: Vec<Value>,
+    /// Tests fix the kick order.
+    order: Option<usize>,
 }
 
 /// x in a team's own frame: every team attacks toward local x = W.
@@ -270,8 +272,9 @@ impl<'a> Match<'a> {
     }
 
     /// Turns a direction by a random angle with the given spread (radians).
-    fn wobble(&mut self, dx: f64, dy: f64, spread: f64) -> (f64, f64) {
-        let a = spread * self.rng.gauss();
+    fn wobble(&mut self, team: usize, dx: f64, dy: f64, spread: f64) -> (f64, f64) {
+        // Mirrored for the team attacking left, so both halves play by the same rules.
+        let a = spread * self.rng.gauss() * if team == 0 { 1.0 } else { -1.0 };
         (dx * a.cos() - dy * a.sin(), dx * a.sin() + dy * a.cos())
     }
 
@@ -328,7 +331,7 @@ impl<'a> Match<'a> {
                 let power = 3.0 + 3.0 * self.gene(i, 7);
                 // The farther and harder the shot, the wider it may go.
                 let spread = 0.05 + 0.03 * dist(me, goal) + 0.02 * (power - 3.0);
-                let (dx, dy) = self.wobble(aim.0 - me.0, aim.1 - me.1, spread);
+                let (dx, dy) = self.wobble(pl.team, aim.0 - me.0, aim.1 - me.1, spread);
                 return (ball, Some((dx, dy, power)));
             }
             // A pass, to whoever is ahead, free and reachable; a call to us counts for a lot.
@@ -368,7 +371,7 @@ impl<'a> Match<'a> {
                     let d = dist(me, (mate.x, mate.y));
                     self.pass = Some((pl.team, pl.idx, mate.idx));
                     self.passed[i] = Some((mate.idx, self.t));
-                    let (dx, dy) = self.wobble(mate.x - me.0, mate.y - me.1, 0.04 + 0.01 * d);
+                    let (dx, dy) = self.wobble(pl.team, mate.x - me.0, mate.y - me.1, 0.04 + 0.01 * d);
                     return (ball, Some((dx, dy, (1.3 * d + 1.0).clamp(2.5, 6.0))));
                 }
             }
@@ -420,23 +423,29 @@ impl<'a> Match<'a> {
             pl.cooldown -= DT;
             pl.gap -= DT;
         }
-        // Ducks do not walk through each other.
+        // Ducks do not walk through each other. Pushes are worked out from one
+        // snapshot: resolving pairs in turn favoured the ducks listed last.
+        let mut shove = vec![(0.0, 0.0); n];
         for a in 0..n {
             for b in a + 1..n {
                 let d = dist((self.p[a].x, self.p[a].y), (self.p[b].x, self.p[b].y));
                 if d < 2.0 * DUCK_R && d > 1e-6 {
                     let push = (2.0 * DUCK_R - d) / 2.0;
                     let (ux, uy) = ((self.p[b].x - self.p[a].x) / d, (self.p[b].y - self.p[a].y) / d);
-                    self.p[a].x -= ux * push;
-                    self.p[a].y -= uy * push;
-                    self.p[b].x += ux * push;
-                    self.p[b].y += uy * push;
+                    shove[a].0 -= ux * push;
+                    shove[a].1 -= uy * push;
+                    shove[b].0 += ux * push;
+                    shove[b].1 += uy * push;
                 }
             }
         }
+        for (pl, (sx, sy)) in self.p.iter_mut().zip(shove) {
+            pl.x += sx;
+            pl.y += sy;
+        }
 
         // Kick, in a rotating order so no duck always reaches the ball first.
-        let start = (self.t / DT) as usize % n;
+        let start = self.order.unwrap_or_else(|| (self.rng.unit() * n as f64) as usize % n);
         for k in 0..n {
             let i = (k + start) % n;
             if let Some((dx, dy, power)) = plans[i].1 {
@@ -473,7 +482,8 @@ impl<'a> Match<'a> {
             self.bvx = -self.bvx * 0.6;
         }
         // A duck the ball runs into: a slow ball is nudged, a fast one is blocked.
-        for i in 0..n {
+        for k in 0..n {
+            let i = (k + start) % n;
             let pl = self.p[i];
             let d = dist((pl.x, pl.y), (self.bx, self.by));
             if d >= 0.25 || d < 1e-6 {
@@ -734,6 +744,7 @@ pub fn play(teams: [&Team; 2], seed: u64, opt: &Options) -> Outcome {
         chase: vec![false; 2 * N],
         frames: Vec::new(),
         events: Vec::new(),
+        order: None,
     };
     let first = (m.rng.unit() * 2.0) as usize;
     m.reset(first);
@@ -752,5 +763,61 @@ pub fn play(teams: [&Team; 2], seed: u64, opt: &Options) -> Outcome {
         passes: m.passes,
         frames: m.frames,
         events: m.events,
+    }
+}
+
+#[cfg(test)]
+mod mirror {
+    use super::*;
+    // Swapping the teams and mirroring the pitch in x must mirror every decision.
+    #[test]
+    fn decisions_mirror() {
+        let opt = Options { comms: [false, false], record: false, calls: [true; 3], seconds: 90.0 };
+        let mut rng = Rng::new(9);
+        let a = Team::random(&mut rng);
+        let b = Team::random(&mut rng);
+        for trial in 0..2000 {
+            let mk = |teams: [&Team; 2]| {
+                let mut p = Vec::new();
+                for team in 0..2 {
+                    for idx in 0..N {
+                        p.push(Player { team, idx, x: 0.0, y: 0.0, cooldown: 0.0, gap: 0.0, no_chase_until: 0.0, back_until: 0.0, call: None, kb: (W / 2.0, H / 2.0), k_theirs: false, k_at: 0.0 });
+                    }
+                }
+                Match { teams: [teams[0].clone(), teams[1].clone()], opt: &opt, p, bx: 0.0, by: 0.0, bvx: 0.0, bvy: 0.0, last_touch: None, touch_t: 0.0, t: 0.0, score: [0, 0], rng: Rng::new(5), pending: Vec::new(), talk: [Talked::default(); 2], passes: [0, 0], pass: None, passed: vec![None; 2 * N], chase: vec![false; 2 * N], frames: Vec::new(), events: Vec::new(), order: None }
+            };
+            let mut m1 = mk([&a, &b]);
+            let mut m2 = mk([&b, &a]);
+            for i in 0..6 {
+                let (x, y) = (rng.unit() * W, rng.unit() * H);
+                m1.p[i].x = x;
+                m1.p[i].y = y;
+                let j = (i + 3) % 6;
+                m2.p[j].x = W - x;
+                m2.p[j].y = y;
+            }
+            let (bx, by) = (rng.unit() * W, rng.unit() * H);
+            m1.bx = bx; m1.by = by; m2.bx = W - bx; m2.by = by;
+            m1.t = 1.0; m2.t = 1.0;
+            m1.look(); m2.look();
+            m1.order = Some(0); m2.order = Some(3);
+            m1.rng = Rng::new(trial); m2.rng = Rng::new(trial);
+            for _ in 0..1 { m1.step(); m2.step(); }
+            for i in 0..6 {
+                let j = (i + 3) % 6;
+                assert!((m1.p[i].x - (W - m2.p[j].x)).abs() < 1e-6 && (m1.p[i].y - m2.p[j].y).abs() < 1e-6, "step trial {trial} duck {i}: {:?} vs {:?}", (m1.p[i].x, m1.p[i].y), (W - m2.p[j].x, m2.p[j].y));
+            }
+            assert!((m1.bx - (W - m2.bx)).abs() < 1e-6 && (m1.by - m2.by).abs() < 1e-6, "ball trial {trial}: {:?} vs {:?}", (m1.bx, m1.by), (W - m2.bx, m2.by));
+            for i in 0..6 {
+                let j = (i + 3) % 6;
+                m1.rng = Rng::new(trial); m2.rng = Rng::new(trial);
+                let (t1, k1) = m1.decide(i);
+                let (t2, k2) = m2.decide(j);
+                let bad = (t1.0 - (W - t2.0)).abs() > 1e-6 || (t1.1 - t2.1).abs() > 1e-6
+                    || k1.is_some() != k2.is_some()
+                    || k1.zip(k2).is_some_and(|(p, q)| (p.0 + q.0).abs() > 1e-6 || (p.1 - q.1).abs() > 1e-6);
+                assert!(!bad, "trial {trial} duck {i}: {t1:?} {k1:?} vs mirrored {t2:?} {k2:?}");
+            }
+        }
     }
 }

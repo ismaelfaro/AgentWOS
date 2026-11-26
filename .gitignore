@@ -17,3 +17,4 @@ node_modules
 /bench/results
 /examples/a2a/mcp.lock
 /examples/a2a/runs
+/examples/duck-soccer/dashboard/lab.wasm

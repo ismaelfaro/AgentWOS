@@ -7,6 +7,9 @@ better?** In this model, so far, it does not. The ducks learn to play, they lear
 what their calls mean, and evolution learns which calls to stop making; but a
 team that talks does not beat one that keeps quiet. The numbers are below.
 
+**Watch it live: https://agentic-duck-soccer.asst.workers.dev**, or change how
+the ducks play in the [lab](https://agentic-duck-soccer.asst.workers.dev/lab.html).
+
 ```
 generation ──► 8 teams play at once (threads), each a few matches
                   │   each duck: a policy of 11 numbers (how it plays, how much it heeds a call)
@@ -83,20 +86,20 @@ Six seeds, 10 generations of 8 teams each:
 
 | | Mean over six seeds |
 |---|---|
-| Wins against the chasers, generation 0 → 9 | 17% → 81% |
-| Goal difference per match, generation 0 → 9 | −3.1 → +4.1 |
-| Calls read the way they were meant (last three generations) | 55%, against 33% by chance |
-| How readily the best team makes each call, at the end | "open" 27%, "mine" 6%, "back" 36% |
+| Wins against the chasers, generation 0 → 9 | 27% → 89% |
+| Goal difference per match, generation 0 → 9 | −1.4 → +2.8 |
+| Calls read the way they were meant (last three generations) | 47%, against 33% by chance |
+| How readily the best team makes each call, at the end | "open" 14%, "mine" 11%, "back" 52% |
 
 **Does talking help?** Two ways to ask it:
 
 | | Talking | Not talking |
 |---|---|---|
-| The same team, calls on or off (wins, last three generations) | 83% | 85% |
-| A lineage that evolves talking, against one that never talks (wins) | 83% | 88% |
-| ... goal difference | +5.4 | +7.3 |
+| The same team, calls on or off (wins, last three generations) | 87% | 93% |
+| A lineage that evolves talking, against one that never talks (wins) | 87% | 96% |
+| ... goal difference | +2.4 | +3.6 |
 
-The lineage that talks was ahead on goal difference in 2 of the 6 seeds.
+The lineage that talks was ahead on goal difference in 1 of the 6 seeds.
 
 So: **the ducks learn to play** (in every seed), **they learn a language** (well
 above chance, though not in every seed and not one word per meaning), and
@@ -117,8 +120,13 @@ What changed on the way, and why it matters:
    get in the way. Limiting sight to 3.5 m gave calls something to say; talking
    still did not pay.
 4. Calls were orders the listener had to obey. Making how much each duck heeds
-   each call part of its genome brought the talking lineage from 62% to 83%
-   wins, close to the silent one, but not past it.
+   each call part of its genome brought the talking lineage close to the
+   silent one, but not past it.
+5. The two halves of the pitch were not equal: ducks pushed apart pair by pair
+   left the ducks listed last (the chasers) ahead in every scrum; of two
+   identical teams, the first lost 99 matches of 100. Pushes are now worked out
+   at once, a test checks that a mirrored pitch gives mirrored decisions, and the numbers above
+   come from after the fix. The finding did not change.
 
 Why talking does not pay here, as far as these runs say: the chasers are beaten
 by positioning, which needs no words; every call adds parameters for evolution to
@@ -127,7 +135,7 @@ the language has settled is worth little to a team that has to win now.
 
 ## Run
 
-Plain Rust, no model and no WASM. Each run takes about a second.
+Plain Rust, no model. Each run takes about a second.
 
 ```bash
 cd examples/duck-soccer
@@ -152,13 +160,27 @@ score. Beside it: the win rate by generation (talking, the same team muted, and 
 silent lineage if `runs/silent.js` exists), how well calls were understood, how
 readily each call is made, each duck's words, and a play-by-play.
 
+## The lab
+
+`dashboard/lab.html` runs the same simulator in the browser (`src/sim.rs` built
+to WASM by `build-lab.sh`). Pick your team (the evolved champion, generation 0,
+the chasers or a hand-made team) and an opponent, then move any of the eleven
+numbers of any duck, or how readily the team makes each call. The match replays
+with the same seed from the moment you are watching, so you see exactly what
+your change did. "Play 100 matches" measures it, and can compare it muted.
+
+```bash
+examples/duck-soccer/build-lab.sh  # needs: rustup target add wasm32-unknown-unknown
+tools/serve.py                     # open http://localhost:8765/examples/duck-soccer/dashboard/lab.html
+```
+
 ## Publish
 
 ```bash
-examples/duck-soccer/deploy.sh     # runs both lineages, then `wrangler deploy` (needs `npx wrangler login`)
+examples/duck-soccer/deploy.sh     # builds the lab, runs both lineages, then `wrangler deploy` (needs `npx wrangler login`)
 ```
 
-The page is static: the dashboard and the two logs, served by Cloudflare as
+The site is static: the two pages, the simulator and the two logs, served by Cloudflare as
 `agentic-duck-soccer`.
 
 ## Limits
